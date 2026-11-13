@@ -754,7 +754,8 @@ function D.new(deps)
   self.samples = U.Ring.new(cfg.diag_samples)
   self.spikes = U.Ring.new(32)      -- timestamps of spike samples
   self.stalls = U.Ring.new(16)      -- {t0, t1} client stalls seen by the background sampler
-  self.lat = U.Ring.new(32)         -- observed shot->damage latencies (s)
+  self.lat = U.Ring.new(32)         -- observed shot->damage latencies (s), source unknown
+  self.tlat = U.Ring.new(32)        -- TRUSTED latencies: hits Juju itself attributed to my bullet
   self.ewma = nil
   self.last_ms = nil
   self.last_bg = nil
@@ -849,10 +850,20 @@ function D:p95()
   return U.percentile(arr, 95)
 end
 
--- Record the delay between a shot and the damage it produced (hit or late hit), so the window
--- follows what the game actually does, not only what the ping suggests.
-function D:note_latency(sec)
-  if U.is_finite(sec) and sec > 0 then self.lat:push(sec) end
+-- Record the delay between a shot and the damage it produced.
+-- `trusted` means Juju itself attributed the hit to the local player's bullet
+-- (on_local_bullet_confirmed). Only those feed the window, because they cannot be another player's
+-- damage, so the feedback loop that disables `learn_window` by default cannot occur.
+function D:note_latency(sec, trusted)
+  if not (U.is_finite(sec) and sec > 0) then return end
+  if trusted then self.tlat:push(sec) end
+  self.lat:push(sec)
+end
+
+-- p95 of trusted latencies once there are enough of them.
+function D:trusted_latency()
+  if self.tlat:size() < self.cfg.window_emp_min then return nil end
+  return U.percentile(self.tlat:to_array(), 95)
 end
 
 -- Confirmation window in seconds, derived from measured ping and jitter:
@@ -869,7 +880,13 @@ function D:window()
       + cfg.window_floor
   end
   local emp = 0
-  if cfg.learn_window and self.lat:size() >= cfg.window_emp_min then
+  -- LIVE FINDING: in the observed Hood Customs session the confirmation arrived ~2.9 x ping after
+  -- the shot, well beyond mult * RTT. Trusted (Juju-attributed) latencies therefore always widen
+  -- the window; untrusted ones only when the user opts in with learn_window.
+  local trusted = self:trusted_latency()
+  if trusted then
+    emp = trusted * cfg.window_emp_mult
+  elseif cfg.learn_window and self.lat:size() >= cfg.window_emp_min then
     emp = (U.percentile(self.lat:to_array(), 95) or 0) * cfg.window_emp_mult
   end
   local w = math.max(model, emp)
@@ -911,11 +928,12 @@ function D:snapshot()
     samples = self.n_samples, invalid = self.n_invalid, spikes = self.n_spikes,
     stalls = self.n_stalls, gap = self.gap, gap_max = self.gap_max, gap_warns = self.gap_warns,
     window = self:window(), degraded = self:degraded_now(), lat_n = self.lat:size(),
+    tlat_n = self.tlat:size(), tlat_p95 = self:trusted_latency(),
   }
 end
 
 function D:reset()
-  self.samples:clear(); self.spikes:clear(); self.stalls:clear(); self.lat:clear()
+  self.samples:clear(); self.spikes:clear(); self.stalls:clear(); self.lat:clear(); self.tlat:clear()
   self.ewma, self.last_ms, self.last_bg = nil, nil, nil
   self.n_samples, self.n_invalid, self.n_spikes, self.n_stalls = 0, 0, 0, 0
   self.gap, self.gap_max, self.gap_warns = nil, 0, 0
@@ -1289,7 +1307,7 @@ function E:_finish(shot, outcome, reason, t)
         b.ratio_n = b.ratio_n + 1
       end
     end
-    pcall(self.diag.note_latency, self.diag, lat)
+    pcall(self.diag.note_latency, self.diag, lat, shot.juju_confirmed == true)
     self.recent_hit:push(shot)
     self:_event(t, "hit", string.format("#%d %s latency=%.0fms dmg=%.1f", shot.id, shot.weapon.key,
       lat * 1000, shot.damage_total))
@@ -1475,6 +1493,8 @@ function E:register_confirm(info)
       h.juju_confirmed = true
       self:_apply(h, "confirmed_hits", 1)
       self.counters.corroborated = self.counters.corroborated + 1
+      -- now known to be a local bullet: its latency may steer the window
+      if h.latency then pcall(self.diag.note_latency, self.diag, h.latency, true) end
       self:_event(t, "juju_confirmed", string.format("#%d hit confirmed by Juju %.0fms after the damage",
         h.id, (t - h.hit_t) * 1000))
       self.on_change()
@@ -2367,9 +2387,10 @@ function UI:report()
     c.late_damage, c.early_damage, c.unattributed_damage, c.fires_matched, c.fire_unmatched,
     c.invalid_events, c.clock_anomaly, c.timer_failures)
   local d = self.diag:snapshot()
-  add("ping=%s avg=%s p95=%s jitter=%s samples=%d invalid=%d spikes=%d stalls=%d gap=%s gap_max=%.1f gap_warns=%d window=%s emp_obs=%d",
+  add("ping=%s avg=%s p95=%s jitter=%s samples=%d invalid=%d spikes=%d stalls=%d gap=%s gap_max=%.1f gap_warns=%d window=%s obs=%d trusted=%d%s",
     ms(d.ping), ms(d.avg), ms(d.p95), ms(d.jitter), d.samples, d.invalid, d.spikes, d.stalls,
-    d.gap and string.format("%.1f", d.gap) or "n/a", d.gap_max, d.gap_warns, ms(d.window * 1000), d.lat_n)
+    d.gap and string.format("%.1f", d.gap) or "n/a", d.gap_max, d.gap_warns, ms(d.window * 1000),
+    d.lat_n, d.tlat_n, d.tlat_p95 and (" p95=" .. ms(d.tlat_p95 * 1000) .. " (window follows this)") or "")
   local cur = self.world and self.world.current
   if cur then
     local iv = self.engine:interval_stats(cur.weapon.key)

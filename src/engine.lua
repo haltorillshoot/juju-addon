@@ -285,7 +285,7 @@ function E:_finish(shot, outcome, reason, t)
         b.ratio_n = b.ratio_n + 1
       end
     end
-    pcall(self.diag.note_latency, self.diag, lat)
+    pcall(self.diag.note_latency, self.diag, lat, shot.juju_confirmed == true)
     self.recent_hit:push(shot)
     self:_event(t, "hit", string.format("#%d %s latency=%.0fms dmg=%.1f", shot.id, shot.weapon.key,
       lat * 1000, shot.damage_total))
@@ -471,6 +471,8 @@ function E:register_confirm(info)
       h.juju_confirmed = true
       self:_apply(h, "confirmed_hits", 1)
       self.counters.corroborated = self.counters.corroborated + 1
+      -- now known to be a local bullet: its latency may steer the window
+      if h.latency then pcall(self.diag.note_latency, self.diag, h.latency, true) end
       self:_event(t, "juju_confirmed", string.format("#%d hit confirmed by Juju %.0fms after the damage",
         h.id, (t - h.hit_t) * 1000))
       self.on_change()

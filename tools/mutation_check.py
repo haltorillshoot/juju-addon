@@ -87,6 +87,14 @@ M = [
     ("host: connects-but-returns-nil not flagged", "host.lua", "        host.dup_risk = true\n", "        host.dup_risk = false\n"),
     ("ui: menu reported OK with zero controls", "ui.lua", "  self.menu_ok = created > 0", "  self.menu_ok = true"),
     ("world: use_juju_signals=false ignored", "world.lua", "  if not self.cfg.use_juju_signals then return end\n", ""),
+
+    # ---- trusted-latency window (second live run)
+    ("diag: trusted latencies ignored by the window", "diag.lua", "  if trusted then\n    emp = trusted * cfg.window_emp_mult", "  if false then\n    emp = trusted * cfg.window_emp_mult"),
+    ("diag: untrusted latencies also trusted", "diag.lua", "  if trusted then self.tlat:push(sec) end", "  self.tlat:push(sec)"),
+    ("diag: trusted term needs no minimum sample count", "diag.lua", "  if self.tlat:size() < self.cfg.window_emp_min then return nil end\n", ""),
+    ("engine: hit latency always marked trusted", "engine.lua", "self.diag, lat, shot.juju_confirmed == true)", "self.diag, lat, true)"),
+    ("engine: corroboration does not teach the window", "engine.lua", "      if h.latency then pcall(self.diag.note_latency, self.diag, h.latency, true) end\n", ""),
+    ("diag: reset keeps trusted latencies", "diag.lua", "self.lat:clear(); self.tlat:clear()", "self.lat:clear()"),
 ]
 
 

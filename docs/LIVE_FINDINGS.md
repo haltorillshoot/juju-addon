@@ -57,6 +57,31 @@ Other tool names seen: `[Knife]`, `[Pizza]`, `[Chicken]`.
 * `gap_max` in the report reached ~3e9 studs: at some moment the server-side position was extremely far
   from the client (consistent with a desync/void state). The gap metric is therefore meaningful.
 
+## 4b. Second run (107 attempts, after the fixes) - the numbers that changed the window
+
+```
+[all] att=107 hit=14 miss=68 unconf=25 pend=0  hit%=17.1%  lat(avg/min/max)=156ms/112ms/226ms
+      hits also confirmed by Juju's own bullet signal: 14 of 14
+      hit latency / ping at shot = 2.90
+ping=52ms p95=53ms jitter=0ms samples=195 spikes=0 stalls=0 window=200ms
+juju native hit signal: hooked  confirms=14 corroborated=0 pellets=0 unmatched=0
+connections: create_connection behaviour=noop_returns_nil direct-connect fallbacks=56
+unconfirmed reasons: weapon_changed=25
+```
+
+Two things stand out:
+
+1. **`corroborated=0`** - every hit was resolved by the Juju signal; `Humanoid.HealthChanged` on the
+   victim never produced one. The health-based detection this addon was originally built on appears
+   not to work for other players in this game, at least for a knife. **The native signal is essential,
+   not a bonus.**
+2. **Hit latency ~2.9 x ping**, up to 226 ms against a 200 ms window: the slowest hits only counted
+   because of the late-damage grace. The window now learns from Juju-confirmed latencies (see
+   `docs/TEST_REPORT.md`), which is safe precisely because Juju attributes them to the local bullet.
+
+Unloading was also verified live: 9 HUD objects removed, registry entry cleared, `jhc_loaded` set back
+to `false`, and reloading the bundle shut the previous instance down first.
+
 ## 5. Still unverified
 
 * Semantics of `on_local_bullet_fired` (never fired), whether `on_player_bullet_fired` includes your own

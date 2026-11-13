@@ -17,11 +17,11 @@ annotations, `goto`), but Luau parsing/semantics are unverified.
 
 | Configuration | Result |
 |---|---|
-| `src/` on LuaJIT 2.1.1724 | 272 / 272 |
-| `src/` on LuaJIT 2.1.0-beta3 | 272 / 272 |
-| `dist/jhc_hood_customs.lua` (shipped single file) on LuaJIT 2.1.1724 | 272 / 272 |
-| `dist/jhc_hood_customs.lua` on LuaJIT 2.1.0-beta3 | 272 / 272 |
-| Mutation check (`tools/mutation_check.py`): deliberate breakages detected | 57 / 57 |
+| `src/` on LuaJIT 2.1.1724 | 280 / 280 |
+| `src/` on LuaJIT 2.1.0-beta3 | 280 / 280 |
+| `dist/jhc_hood_customs.lua` (shipped single file) on LuaJIT 2.1.1724 | 280 / 280 |
+| `dist/jhc_hood_customs.lua` on LuaJIT 2.1.0-beta3 | 280 / 280 |
+| Mutation check (`tools/mutation_check.py`): deliberate breakages detected | 71 / 71 |
 
 ```
  01 Addon initialization                  14     10 Event handling                 14
@@ -36,6 +36,7 @@ annotations, `goto`), but Luau parsing/semantics are unverified.
                                                  19 Loader script                   8
                                                  20 Live findings                   8
                                                  21 Juju native confirmation       11
+                                                 22 Window follows confirmed lat.   8
 ```
 
 Suites 01-16 map one-to-one onto the 16 test areas requested. 17 is the latency study, 18 holds one
@@ -51,10 +52,11 @@ respawns, 100 weapon switches and 40 player joins/leaves.
 
 ## How much the tests can be trusted
 
-* **Mutation check.** 57 deliberate one-line breakages of `src/` (remove the causal floor, stop
+* **Mutation check.** 71 deliberate one-line breakages of `src/` (remove the causal floor, stop
   releasing a connection key, let a hit through without damage, ...). The first run caught 32 of 38;
-  the 6 survivors were gaps in my tests (and one equivalent mutant) and got new tests. After the
-  review-driven changes the list grew to 57; one more survivor was a weak invariant test. Final: 57 / 57.
+  the 6 survivors were gaps in my tests (and one equivalent mutant) and got new tests. The list then
+  grew with each round of findings (review, live run, trusted-latency window) to 71, and three more
+  survivors along the way were weak tests that were tightened. Final: 71 / 71.
 * **Vacuous tests found and fixed.** The Drawing mock initially never counted text writes, so the
   "HUD only rewrites changed lines" test passed for the wrong reason; the memory test was measuring the
   mock's own call log. Both were corrected (the HUD test now also asserts the mock saw writes).
@@ -110,6 +112,19 @@ targets and the Juju `auto_mode` flag; it exposed two real defects the mocks had
 (`create_connection`/`create_section` returning nil outside an addon context) which were fixed and
 re-verified live; and it revealed Juju's undocumented native bullet signals, now used as hit evidence.
 **Not** verified live: the menu under Juju's real addon loader, the on-screen HUD, melee/ammo signals.
+
+The second live run (107 tracked attempts, knife) produced the measurement that drove the last change:
+
+* **All 14 hits came from Juju's `on_local_bullet_confirmed`; `Humanoid.HealthChanged` produced none**
+  (`corroborated=0`). On this game the health-based inference the addon was originally built on may
+  not fire at all for another player's damage. The native signal is what makes hit detection work here.
+* **Confirmation latency was ~2.9 x ping** (112-226 ms at 52 ms ping), i.e. wider than the shipped
+  window (1.5 x RTT + 50 ms = 200 ms floor). The slowest confirmations only landed because of the
+  late-damage grace, and anything slower would have been reported as a miss.
+* Fix: latencies of hits **Juju itself attributed to the local bullet** now steer the window
+  (suite 22). These cannot be another player's damage, so the feedback loop that keeps `learn_window`
+  off by default does not apply. A test reproduces the live latency spread and shows that without
+  this, 2 of 8 real hits at 212/226 ms are reported as unconfirmed-late instead of hits.
 
 ## What was NOT tested
 

@@ -76,6 +76,11 @@ ignored with a message. Most useful: `scope`, `weapon_aliases` (the in-game tool
 
 ## Known limits (read these)
 
+* **Hit detection in practice.** In the live session every confirmed hit came from Juju's
+  `on_local_bullet_confirmed` signal and none from `Humanoid.HealthChanged`, so on this game the native
+  signal is what makes detection work; the health-based path is a fallback for builds without it. The
+  confirmation arrived ~2.9x ping after the shot, so the window now learns from Juju-confirmed hit
+  latencies (shown as `trusted=` in the report).
 * **Live-observed, see `docs/LIVE_FINDINGS.md`.** The running Juju exposes signals the docs do not list; when
   `on_local_bullet_confirmed` exists it is used as the strongest hit evidence (`Juju-conf` in the HUD).
   Loaded from outside Juju's addon loader, `create_connection`/`create_section` do nothing: the addon then

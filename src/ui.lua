@@ -136,9 +136,10 @@ function UI:report()
     c.late_damage, c.early_damage, c.unattributed_damage, c.fires_matched, c.fire_unmatched,
     c.invalid_events, c.clock_anomaly, c.timer_failures)
   local d = self.diag:snapshot()
-  add("ping=%s avg=%s p95=%s jitter=%s samples=%d invalid=%d spikes=%d stalls=%d gap=%s gap_max=%.1f gap_warns=%d window=%s emp_obs=%d",
+  add("ping=%s avg=%s p95=%s jitter=%s samples=%d invalid=%d spikes=%d stalls=%d gap=%s gap_max=%.1f gap_warns=%d window=%s obs=%d trusted=%d%s",
     ms(d.ping), ms(d.avg), ms(d.p95), ms(d.jitter), d.samples, d.invalid, d.spikes, d.stalls,
-    d.gap and string.format("%.1f", d.gap) or "n/a", d.gap_max, d.gap_warns, ms(d.window * 1000), d.lat_n)
+    d.gap and string.format("%.1f", d.gap) or "n/a", d.gap_max, d.gap_warns, ms(d.window * 1000),
+    d.lat_n, d.tlat_n, d.tlat_p95 and (" p95=" .. ms(d.tlat_p95 * 1000) .. " (window follows this)") or "")
   local cur = self.world and self.world.current
   if cur then
     local iv = self.engine:interval_stats(cur.weapon.key)
