@@ -75,6 +75,7 @@ function H.detect(env)
   -- connect" and the signal is connected directly; this addon's own unload hook disconnects it.
   host.connect_fallbacks = 0
   function host.connect(signal, fn)
+    if type(signal) == "table" and signal.__direct then return signal:Connect(fn) end   -- Juju custom signal
     if host.caps.create_connection then
       local ok, conn = pcall(juju_t.create_connection, signal, fn)
       if ok and conn ~= nil then
@@ -146,6 +147,17 @@ function H.detect(env)
     end)
     if ok and U.is_finite(d) then return d end
     return nil
+  end
+
+  -- Juju custom signal by name (documented get_signal), or nil. Wrapped so host.connect connects it
+  -- directly (create_connection is documented for RBXScriptSignals).
+  function host.juju_signal(name)
+    if not host.caps.get_signal then return nil end
+    local ok, sig = pcall(juju_t.get_signal, name)
+    if not ok or sig == nil then return nil end
+    local okc, c = pcall(function() return sig.Connect end)
+    if not okc or c == nil then return nil end
+    return { __direct = true, Connect = function(_, fn) return sig:Connect(fn) end }
   end
 
   function host.get_flag(name)

@@ -399,7 +399,8 @@ function M.new_juju(sim, game)
     unload_cbs = {}, managed = {}, ping = 60, ragebot_target = nil, server_pos = M.Vector3(0, 0, 0),
     client_pos = M.Vector3(0, 0, 0), violations = {}, strict_errors = {}, throw = {} }
   J.signals = { on_ragebot_target_changed = Signal.new("a"), on_legitbot_target_changed = Signal.new("b"),
-    on_target_changed = Signal.new("c"), on_player_status_changed = Signal.new("d") }
+    on_target_changed = Signal.new("c"), on_player_status_changed = Signal.new("d"),
+    on_local_bullet_confirmed = Signal.new("e") }     -- undocumented, seen live
   local api = {}
   J.api = api
 
@@ -497,6 +498,7 @@ function M.new_juju(sim, game)
     strict(type(signal) == "table" and type(signal.Connect) == "function", "create_connection needs a signal")
     strict(type(callback) == "function", "create_connection callback must be function")
     if J.cc_mode == "noop_nil" then return nil end          -- seen live outside a Juju addon context
+    if J.cc_mode == "returns_true" then return true end     -- not a connection object, connects nothing
     local conn = signal:Connect(callback)
     J.managed[#J.managed + 1] = conn
     if J.cc_mode == "connect_nil" then return nil end        -- connects but returns nothing

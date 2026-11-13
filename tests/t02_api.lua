@@ -6,7 +6,8 @@ T.suite("02 Juju API compatibility")
 
 local ALLOWED = { create_tab = true, create_section = true, create_element = true, set_tab_text = true,
   create_connection = true, on_unload = true, get_flag = true, set_flag = true, get_flags = true,
-  get_ping = true, get_server_cframe = true, get_client_cframe = true, get_ragebot_target = true }
+  get_ping = true, get_server_cframe = true, get_client_cframe = true, get_ragebot_target = true,
+  get_signal = true }
 
 -- exercise every feature once
 local function full_session()

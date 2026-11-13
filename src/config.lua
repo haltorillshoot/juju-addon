@@ -20,6 +20,13 @@ C.defaults = {
   follow_host_auto = false,  -- treat Juju's own auto flag as Auto Mode ON
   host_auto_flag = "",       -- exact name of Juju's auto flag, "" = discover by name
 
+  -- LIVE FINDING: the running Juju exposes signals the docs do not list (discovered through the
+  -- documented juju.get_signals()/get_signal()). on_local_bullet_confirmed(player, part, "-15") is
+  -- Juju's own confirmation that a LOCAL bullet hit someone. When present it is used as the strongest
+  -- hit evidence (it removes the "somebody else's damage" ambiguity).
+  use_juju_signals = true,
+  confirm_match = 0.5,       -- a Juju confirmation corroborates a health-inferred hit up to this long after it (s)
+
   -- which players' damage can confirm a hit: "auto" (ragebot target if set, else all),
   -- "target" (ragebot target only), "all" (every other player)
   scope = "auto",
@@ -75,6 +82,7 @@ local SCHEMA = {
   enabled = { "boolean" }, hud = { "boolean" }, debug = { "boolean" },
   tab_summary = { "boolean" }, auto_mode = { "boolean" },
   follow_host_auto = { "boolean" }, host_auto_flag = { "string" },
+  use_juju_signals = { "boolean" }, confirm_match = { "number", 0.05, 2 },
   scope = { "enum", { "auto", "target", "all" } },
   causal_check = { "boolean" }, causal_ratio = { "number", 0, 1 },
   burst_gap = { "number", 0, 0.1 }, dedupe_eps = { "number", 0, 0.1 },

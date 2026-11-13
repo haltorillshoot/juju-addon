@@ -68,6 +68,21 @@ T.test("create_section returning nil: ONE clear message, menu reported as unavai
   T.ok(c.drawing.live > 0, "HUD still works without the menu")
 end)
 
+T.test("a non-connection return value (e.g. true) is not trusted either: direct connection, one listener", function()
+  local c = H.standard({ pre = function(x) x.J.cc_mode = "returns_true" end })
+  T.eq(c.tool.Activated.live, 1)
+  T.ok(c.inst.host.connect_fallbacks > 5)
+  H.shoot_hit(c, c.enemies[1], 0.07, 10); H.settle(c)
+  T.eq(H.stats(c).hits, 1)
+end)
+
+T.test("sections exist but no control can be created: menu is reported unavailable", function()
+  local c = H.standard({ pre = function(x) x.J.throw.create_element = true end })
+  T.ok(c.inst, tostring(c.err))
+  T.falsy(c.inst.ui.menu_ok)
+  T.contains(table.concat(c.env.output, "\n"), "menu=false")
+end)
+
 T.test("the console report works without a menu (the only controls left)", function()
   local c = H.standard({ pre = function(x) x.J.section_returns_nil = true end })
   H.shoot(c); H.settle(c)

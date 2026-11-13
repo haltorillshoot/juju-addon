@@ -75,8 +75,8 @@ function UI:lines()
   L[#L + 1] = string.format("Auto Mode: %s (%s)", self.auto.state, self.auto.reason)
   L[#L + 1] = string.format("Shots %d  Hit %d  Miss %d  Unconf %d  NoFire %d  Pend %d",
     s.attempted, s.hits, s.misses, s.unconfirmed, s.not_fired, s.pending)
-  L[#L + 1] = string.format("Hit%% %s (%d/%d)  Reg%% %s", pct(s.hit_pct), s.hits, s.hits + s.misses,
-    pct(s.reg_pct))
+  L[#L + 1] = string.format("Hit%% %s (%d/%d)  Reg%% %s  Juju-conf %d/%d", pct(s.hit_pct), s.hits,
+    s.hits + s.misses, pct(s.reg_pct), s.confirmed_hits, s.hits)
   L[#L + 1] = string.format("Auto %d/%d hit  Manual %d/%d hit", a.hits, a.attempted, m.hits, m.attempted)
   L[#L + 1] = string.format("Ping %s avg %s p95 %s jit %s  gap %s", ms(d.ping), ms(d.avg), ms(d.p95),
     ms(d.jitter), d.gap and string.format("%.1f", d.gap) or "n/a")
@@ -119,6 +119,7 @@ function UI:report()
       names[i], s.attempted, s.hits, s.misses, s.unconfirmed, s.not_fired, s.pending, s.deduped,
       pct(s.hit_pct), pct(s.reg_pct), ms(s.lat_avg and s.lat_avg * 1000),
       ms(s.lat_min and s.lat_min * 1000), ms(s.lat_max and s.lat_max * 1000), s.damage)
+    if s.hits > 0 then add("      hits also confirmed by Juju's own bullet signal: %d of %d", s.confirmed_hits, s.hits) end
     if s.ratio_avg then add("      hit latency / ping at shot = %.2f (1.0 = exactly one round trip)", s.ratio_avg) end
   end
   local inv_ok, inv_msg = self.engine:check_invariant()
@@ -147,6 +148,9 @@ function UI:report()
   end
   add("targets observed=%d  host_auto=%s  host_flag=%s", self.world and self.world:target_count() or 0,
     tostring(self.auto.ctx.host_auto), tostring(self.world and self.world.host_flag_name or "none"))
+  add("juju native hit signal (on_local_bullet_confirmed): %s  confirms=%d corroborated=%d pellets=%d unmatched=%d",
+    (self.world and self.world.juju_confirm_hooked) and "hooked" or "not available/disabled", c.juju_confirms,
+    c.corroborated, c.confirm_pellets, c.confirm_unmatched)
   add("connections: create_connection behaviour=%s direct-connect fallbacks=%d%s",
     tostring(self.host.connect_behaviour or "not probed yet"), self.host.connect_fallbacks or 0,
     self.host.dup_risk and "  !! duplicate-listener risk" or "")

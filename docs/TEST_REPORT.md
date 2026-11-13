@@ -17,10 +17,10 @@ annotations, `goto`), but Luau parsing/semantics are unverified.
 
 | Configuration | Result |
 |---|---|
-| `src/` on LuaJIT 2.1.1724 | 253 / 253 |
-| `src/` on LuaJIT 2.1.0-beta3 | 253 / 253 |
-| `dist/jhc_hood_customs.lua` (shipped single file) on LuaJIT 2.1.1724 | 253 / 253 |
-| `dist/jhc_hood_customs.lua` on LuaJIT 2.1.0-beta3 | 253 / 253 |
+| `src/` on LuaJIT 2.1.1724 | 272 / 272 |
+| `src/` on LuaJIT 2.1.0-beta3 | 272 / 272 |
+| `dist/jhc_hood_customs.lua` (shipped single file) on LuaJIT 2.1.1724 | 272 / 272 |
+| `dist/jhc_hood_customs.lua` on LuaJIT 2.1.0-beta3 | 272 / 272 |
 | Mutation check (`tools/mutation_check.py`): deliberate breakages detected | 57 / 57 |
 
 ```
@@ -34,12 +34,15 @@ annotations, `goto`), but Luau parsing/semantics are unverified.
  08 Auto Mode state handling              14     17 Latency study (SIMULATED)      12
  09 Connection diagnostics                17     18 Review regressions             22
                                                  19 Loader script                   8
+                                                 20 Live findings                   8
+                                                 21 Juju native confirmation       11
 ```
 
 Suites 01-16 map one-to-one onto the 16 test areas requested. 17 is the latency study, 18 holds one
 regression test per defect found by the independent review, 19 runs `loader.lua` against the mocks
 (success, `getgenv().JHC_CONFIG`, `request()` fallback, no Juju, download failure, wrong payload,
-compile error, start error).
+compile error, start error). 20 reproduces behaviour seen in the first live run (`create_connection`/
+`create_section` returning nil), 21 covers Juju's native `on_local_bullet_confirmed` signal.
 
 Performance (simulated clock, real CPU): the engine handles a shot+hit cycle in ~3-5 microseconds;
 5000 end-to-end shots changed the Lua heap by -35 to -63 KB (no growth); idle cost is one `get_ping` +
@@ -99,10 +102,20 @@ Reading it honestly: no window can remove false hits, because another player's d
 target is indistinguishable from yours; the window only controls how often it happens. The numbers
 show the *relative* behaviour of the strategies under this model, not Hood Customs.
 
+## Live smoke test (one real session, first-hand)
+
+Run through a connected Potassium client; the bundle was loaded from this repo at a pinned commit. Details
+in `docs/LIVE_FINDINGS.md`. In short: the addon loaded and tracked real `Tool.Activated` shots, ping,
+targets and the Juju `auto_mode` flag; it exposed two real defects the mocks had hidden
+(`create_connection`/`create_section` returning nil outside an addon context) which were fixed and
+re-verified live; and it revealed Juju's undocumented native bullet signals, now used as hit evidence.
+**Not** verified live: the menu under Juju's real addon loader, the on-screen HUD, melee/ammo signals.
+
 ## What was NOT tested
 
-* Anything live: real Juju, real Hood Customs, the real Double Barrel Shotgun (its tool name, whether
-  `Tool.Activated`/`Humanoid.HealthChanged` reflect its firing and damage, whether it has an ammo value).
+* The automated suite itself is entirely simulated. Live coverage is limited to the smoke test above;
+  in particular the Double Barrel Shotgun was only seen being *equipped* (`[DoubleBarrel]`), and no
+  shot of mine was fired.
 * Luau parsing/semantics; real `Drawing`, `task`, `os.clock`.
 * Packet loss, server tick, and the connection exploit itself: not observable through the documented
   API, so there is nothing to test (see `docs/API_REFERENCE.md` section 4).

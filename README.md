@@ -76,6 +76,11 @@ ignored with a message. Most useful: `scope`, `weapon_aliases` (the in-game tool
 
 ## Known limits (read these)
 
+* **Live-observed, see `docs/LIVE_FINDINGS.md`.** The running Juju exposes signals the docs do not list; when
+  `on_local_bullet_confirmed` exists it is used as the strongest hit evidence (`Juju-conf` in the HUD).
+  Loaded from outside Juju's addon loader, `create_connection`/`create_section` do nothing: the addon then
+  connects directly and runs without a menu.
+
 * **Not verified live.** Everything was tested against mocks of Juju and Roblox on LuaJIT 2.1, never on
   Luau or in a real match (see `docs/TEST_REPORT.md`). Real Hood Customs may fire weapons without
   `Tool.Activated` (custom input, hold-to-fire) or use custom health instead of `Humanoid.Health`; then

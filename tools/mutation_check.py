@@ -77,6 +77,16 @@ M = [
     ("main: handler error log not rate limited", "main.lua", "if n <= 3 or n % 100 == 0 then", "if true then"),
     ("config: late_grace upper bound loosened", "config.lua", "late_grace = { \"number\", 0, 2 },", "late_grace = { \"number\", 0, 5 },"),
     ("config: timer_late_tol may be 0", "config.lua", "timer_late_tol = { \"number\", 0.02, 2 },", "timer_late_tol = { \"number\", 0, 2 },"),
+
+    # ---- added after the first live run
+    ("engine: Juju confirmation never corroborates a hit", "engine.lua", "if not h.juju_confirmed and h.victim == uid and t >= h.hit_t and (t - h.hit_t) <= cfg.confirm_match then", "if false then"),
+    ("engine: confirmation pellets not de-duplicated", "engine.lua", "if cb and t >= cb.last and (t - cb.last) <= cfg.burst_gap then", "if false then"),
+    ("engine: confirmation cannot resolve a pending shot", "engine.lua", "if not s.burst and t >= s.t and t <= s.deadline + cfg.late_grace * s.window + ZERO then", "if false then"),
+    ("engine: deferred hit not released by confirmation", "engine.lua", "if s.deferred and s.victim == uid then", "if false then"),
+    ("host: nil from create_connection trusted (no fallback)", "host.lua", "        if okd and d ~= nil then return conn end", "        return conn"),
+    ("host: connects-but-returns-nil not flagged", "host.lua", "        host.dup_risk = true\n", "        host.dup_risk = false\n"),
+    ("ui: menu reported OK with zero controls", "ui.lua", "  self.menu_ok = created > 0", "  self.menu_ok = true"),
+    ("world: use_juju_signals=false ignored", "world.lua", "  if not self.cfg.use_juju_signals then return end\n", ""),
 ]
 
 
@@ -106,7 +116,7 @@ def main():
         work = os.path.join(base, "w%02d" % n)
         if os.path.exists(work):
             shutil.rmtree(work)
-        shutil.copytree(ROOT, work, ignore=shutil.ignore_patterns("dist", "__pycache__", "_driver.lua"))
+        shutil.copytree(ROOT, work, ignore=shutil.ignore_patterns("__pycache__", "_driver.lua", ".git"))
         path = os.path.join(work, "src", fname)
         with open(path, encoding="utf-8") as fh:
             src = fh.read()

@@ -27,6 +27,7 @@ local function new_bucket()
     attempted = 0, hits = 0, misses = 0, unconfirmed = 0, not_fired = 0, deduped = 0,
     fired = 0, damage = 0, lat_sum = 0, lat_n = 0, lat_min = nil, lat_max = nil,
     ratio_sum = 0, ratio_n = 0,   -- hit latency / ping at shot time (calibration aid)
+    confirmed_hits = 0,           -- hits also confirmed by Juju's own on_local_bullet_confirmed
   }
 end
 
@@ -57,10 +58,13 @@ function E:_init_state()
   self.counters = {
     late_damage = 0, early_damage = 0, unattributed_damage = 0, fires_matched = 0,
     fire_unmatched = 0, invalid_events = 0, clock_anomaly = 0, timer_failures = 0,
+    juju_confirms = 0, corroborated = 0, confirm_pellets = 0, confirm_unmatched = 0,
   }
   self.reasons = {}                 -- unconfirmed reason -> count
   self.bursts = {}                  -- uid -> open damage burst
   self.recent_miss = U.Ring.new(16) -- recently resolved misses (for late-damage detection)
+  self.recent_hit = U.Ring.new(16)  -- recently resolved hits (for Juju confirmation matching)
+  self.cbursts = {}                 -- uid -> last Juju confirmation (pellet de-duplication)
   self.events = U.Ring.new(self.cfg.log_size)
   self.last_attempt = {}            -- weapon key -> time of last accepted attempt
   self.intervals = {}               -- weapon key -> Ring of inter-shot intervals
@@ -282,6 +286,7 @@ function E:_finish(shot, outcome, reason, t)
       end
     end
     pcall(self.diag.note_latency, self.diag, lat)
+    self.recent_hit:push(shot)
     self:_event(t, "hit", string.format("#%d %s latency=%.0fms dmg=%.1f", shot.id, shot.weapon.key,
       lat * 1000, shot.damage_total))
   elseif outcome == "miss" then
@@ -433,6 +438,82 @@ function E:register_damage(info)
 end
 
 -- ---------------------------------------------------------------------------------------
+-- Juju's own bullet confirmation (on_local_bullet_confirmed: player hit, part, damage text)
+-- ---------------------------------------------------------------------------------------
+-- info: { t?, uid, amount?, part? }
+-- Order seen live: the target's health drops first, the confirmation follows ~85ms later. So the
+-- usual case is "corroborate a hit already inferred"; if no hit was inferred yet, the confirmation
+-- itself resolves the oldest pending shot (it is attributed to a LOCAL bullet by Juju).
+function E:register_confirm(info)
+  if self.dead then return "dead" end
+  local cfg = self.cfg
+  local uid = info.uid
+  if uid == nil then
+    self.counters.invalid_events = self.counters.invalid_events + 1
+    return "invalid"
+  end
+  local t = info.t or self.now()
+  self.counters.juju_confirms = self.counters.juju_confirms + 1
+
+  -- pellets of one shot are confirmed together: count the shot once
+  local cb = self.cbursts[uid]
+  if cb and t >= cb.last and (t - cb.last) <= cfg.burst_gap then
+    cb.last = t
+    self.counters.confirm_pellets = self.counters.confirm_pellets + 1
+    return "burst"
+  end
+  self.cbursts[uid] = { last = t }
+
+  -- 1. corroborate a hit already inferred from the target's health
+  for i = self.recent_hit:size(), 1, -1 do
+    local h = self.recent_hit:get(i)
+    if not h.juju_confirmed and h.victim == uid and t >= h.hit_t and (t - h.hit_t) <= cfg.confirm_match then
+      h.juju_confirmed = true
+      self:_apply(h, "confirmed_hits", 1)
+      self.counters.corroborated = self.counters.corroborated + 1
+      self:_event(t, "juju_confirmed", string.format("#%d hit confirmed by Juju %.0fms after the damage",
+        h.id, (t - h.hit_t) * 1000))
+      self.on_change()
+      return "corroborated"
+    end
+  end
+
+  -- 2a. a hit deferred for lack of fire evidence: Juju says the bullet hit, so it did fire
+  for i = 1, #self.pending do
+    local s = self.pending[i]
+    if s.deferred and s.victim == uid then
+      s.deferred = nil
+      s.juju_confirmed = true
+      self:_finish(s, "hit", nil, t)
+      self:_apply(s, "confirmed_hits", 1)
+      return "hit"
+    end
+  end
+
+  -- 2b. no inferred hit yet: the confirmation resolves the oldest pending shot that preceded it
+  for i = 1, #self.pending do
+    local s = self.pending[i]
+    if not s.burst and t >= s.t and t <= s.deadline + cfg.late_grace * s.window + ZERO then
+      local burst = { first = t, last = t, events = 1, damage = info.amount or 0, shot = s }
+      self.bursts[uid] = burst
+      s.burst = burst
+      s.victim = uid
+      s.damage_total = info.amount or 0
+      s.damage_events = 1
+      s.hit_t = t
+      s.latency = t - s.t
+      s.juju_confirmed = true
+      self:_finish(s, "hit", nil, t)
+      self:_apply(s, "confirmed_hits", 1)
+      return "hit"
+    end
+  end
+
+  self.counters.confirm_unmatched = self.counters.confirm_unmatched + 1
+  return "unmatched"
+end
+
+-- ---------------------------------------------------------------------------------------
 -- Fire evidence (optional ammo source)
 -- ---------------------------------------------------------------------------------------
 -- info: { t?, weapon_key }
@@ -483,6 +564,7 @@ function E:target_lost(uid)
     end
   end
   self.bursts[uid] = nil
+  self.cbursts[uid] = nil
 end
 
 -- ---------------------------------------------------------------------------------------
@@ -497,6 +579,7 @@ function E:stats(name)
   out.reg_pct = b.attempted > 0 and (b.hits / b.attempted * 100) or nil
   out.lat_avg = b.lat_n > 0 and (b.lat_sum / b.lat_n) or nil
   out.ratio_avg = b.ratio_n > 0 and (b.ratio_sum / b.ratio_n) or nil
+  out.conf_pct = b.hits > 0 and (b.confirmed_hits / b.hits * 100) or nil
   return out
 end
 

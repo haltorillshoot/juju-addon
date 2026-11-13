@@ -59,6 +59,7 @@ function W:start()
     self.bag:set("lp:removing", lp.CharacterRemoving, function(c) self:_on_local_removing(c) end)
     if lp.Character then self:_on_local_char(lp.Character) end
   end
+  self:_hook_juju_signals()
   local pl = host.players
   self.bag:set("pl:added", pl.PlayerAdded, function(p) self:_track_player(p) end)
   self.bag:set("pl:removing", pl.PlayerRemoving, function(p) self:_untrack_player(p) end)
@@ -66,6 +67,31 @@ function W:start()
   if ok and type(list) == "table" then
     for i = 1, #list do self:_track_player(list[i]) end
   end
+end
+
+-- Juju's own bullet-confirmation signal, if this Juju build has it (found by name at runtime).
+function W:_hook_juju_signals()
+  self.juju_confirm_hooked = false
+  if not self.cfg.use_juju_signals then return end
+  local sig = self.host.juju_signal("on_local_bullet_confirmed")
+  if sig == nil then return end
+  local ok = self.bag:set("juju:confirmed", sig, function(player, part, dmg)
+    self:_on_juju_confirmed(player, part, dmg)
+  end)
+  self.juju_confirm_hooked = ok ~= nil
+end
+
+function W:_on_juju_confirmed(player, part, dmg)
+  if not self.cfg.enabled then return end
+  local uid = (player ~= nil) and uid_of(player) or nil
+  if uid == nil then
+    self.engine.counters.invalid_events = self.engine.counters.invalid_events + 1
+    return
+  end
+  local amount = tonumber(dmg)
+  if amount ~= nil and U.is_finite(amount) then amount = math.abs(amount) else amount = nil end
+  self.engine:register_confirm({ uid = uid, amount = amount })
+  self.dirty()
 end
 
 function W:stop()
