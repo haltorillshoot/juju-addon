@@ -230,6 +230,32 @@ reason counter - and the measured latency feeds the window, so after a handful o
 has grown to cover the real confirmation delay and promotions stop being needed. The report shows
 `of which promoted after their window closed: N`.
 
+## 4i. The window inflating itself on rapid fire
+
+With promotion in place the next session finally recorded hits - 528 shots, 62 hits, 53 of them
+Juju-confirmed, the Double Barrel on the board at last - but the timing numbers were not credible:
+
+```
+window=613ms  trusted=32  p95=1017ms
+hit latency avg/min/max = 505/139/1023ms   ratio=13.71 x ping
+```
+
+A knife hit confirming 1023 ms after the swing at 41 ms ping is not believable. The cause is
+attribution, not the network: a knife swung every ~110 ms under a 613 ms window keeps several shots
+in flight, damage goes to the **oldest** of them (FIFO), so the recorded latency can belong to a
+swing five earlier. Those inflated numbers then steer the window, which widens it, which keeps more
+shots in flight - a feedback loop. The ratio tripling from 5.47x (one shot at a time) to 13.71x
+(rapid fire) is its signature.
+
+Only a shot that had **no other shot in flight** now yields a latency allowed to steer the window.
+Hits are still recorded either way; the measurement is simply not trusted when it cannot be
+attributed unambiguously. The report shows
+`latencies used to steer the window: N clean, M discarded as ambiguous`.
+
+This is the second feedback loop of the same family in this project (the first was `learn_window`
+feeding on other players' damage, found in simulation). The lesson both times: a control loop must
+not learn from measurements it cannot attribute.
+
 ## 5. Still unverified
 
 * Semantics of `on_local_bullet_fired` (never fired), whether `on_player_bullet_fired` includes your own

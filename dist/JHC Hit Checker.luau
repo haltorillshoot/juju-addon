@@ -1101,6 +1101,7 @@ function E:_init_state()
     fire_unmatched = 0, invalid_events = 0, clock_anomaly = 0, timer_failures = 0,
     weapon_switches = 0, shots_spanning_switch = 0,
     juju_confirms = 0, corroborated = 0, confirm_pellets = 0, confirm_unmatched = 0, promoted = 0,
+    latency_clean = 0, latency_ambiguous = 0,
   }
   self.reasons = {}                 -- unconfirmed reason -> count
   self.bursts = {}                  -- uid -> open damage burst
@@ -1484,7 +1485,18 @@ function E:_record_hit_latency(shot)
       b.ratio_n = b.ratio_n + 1
     end
   end
-  pcall(self.diag.note_latency, self.diag, lat, shot.juju_confirmed == true)
+  -- LIVE FINDING: with a knife swung every ~110ms and a 613ms window, several shots are always in
+  -- flight. Damage goes to the OLDEST of them (FIFO), so the measured latency can belong to a shot
+  -- five swings older - which inflated the average to 13.7x ping and, because the window learns
+  -- from these numbers, widened the window further and made attribution worse still. Only a shot
+  -- that had no other shot in flight yields a latency we can trust enough to steer the window.
+  local clean = (shot.juju_confirmed == true) and not shot.overlap
+  if clean then
+    self.counters.latency_clean = self.counters.latency_clean + 1
+  elseif shot.juju_confirmed then
+    self.counters.latency_ambiguous = self.counters.latency_ambiguous + 1
+  end
+  pcall(self.diag.note_latency, self.diag, lat, clean)
 end
 
 -- A Juju confirmation that arrives after its shot already expired. Juju attributes the bullet to
@@ -2555,6 +2567,8 @@ function UI:report()
     (self.world and self.world.bullet_hooked) and "hooked" or "not available/disabled",
     self.world and self.world.counts.bullets_seen or 0)
   add("  of which promoted after their window closed: %d (each one also teaches the window)", c.promoted)
+  add("  latencies used to steer the window: %d clean, %d discarded as ambiguous (shots overlapped)",
+    c.latency_clean, c.latency_ambiguous)
   add("juju native hit signal (on_local_bullet_confirmed): %s  confirms=%d corroborated=%d pellets=%d unmatched=%d",
     (self.world and self.world.juju_confirm_hooked) and "hooked" or "not available/disabled", c.juju_confirms,
     c.corroborated, c.confirm_pellets, c.confirm_unmatched)

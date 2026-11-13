@@ -120,6 +120,10 @@ M = [
     ('engine: promotion does not teach the window', 'engine.lua', '  self:_record_hit_latency(shot)\n  self.recent_hit:push(shot)\n  self.counters.promoted', '  self.recent_hit:push(shot)\n  self.counters.promoted'),
     ('engine: promoted hit is not marked confirmed', 'engine.lua', '  self:_apply(shot, "confirmed_hits", 1)\n  self:_apply(shot, "damage", shot.damage_total)', '  self:_apply(shot, "damage", shot.damage_total)'),
     ('engine: resolved shots are not remembered', 'engine.lua', '  self.recent_shot:push(shot)', '  if false then self.recent_shot:push(shot) end'),
+
+    # ---- only unambiguous latencies may steer the window (live inflation loop)
+    ('engine: ambiguous latencies steer the window again', 'engine.lua', '  local clean = (shot.juju_confirmed == true) and not shot.overlap', '  local clean = (shot.juju_confirmed == true)'),
+    ('engine: unconfirmed latencies treated as clean', 'engine.lua', 'and not shot.overlap\n', 'or true\n'),
 ]
 
 

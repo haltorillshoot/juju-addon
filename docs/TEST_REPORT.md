@@ -17,10 +17,10 @@ annotations, `goto`), but Luau parsing/semantics are unverified.
 
 | Configuration | Result |
 |---|---|
-| `src/` on LuaJIT 2.1.1724 | 320 / 320 |
-| `src/` on LuaJIT 2.1.0-beta3 | 320 / 320 |
-| `dist/jhc_hood_customs.lua` (shipped single file) on LuaJIT 2.1.1724 | 320 / 320 |
-| `dist/jhc_hood_customs.lua` on LuaJIT 2.1.0-beta3 | 320 / 320 |
+| `src/` on LuaJIT 2.1.1724 | 323 / 323 |
+| `src/` on LuaJIT 2.1.0-beta3 | 323 / 323 |
+| `dist/jhc_hood_customs.lua` (shipped single file) on LuaJIT 2.1.1724 | 323 / 323 |
+| `dist/jhc_hood_customs.lua` on LuaJIT 2.1.0-beta3 | 323 / 323 |
 | Mutation check (`tools/mutation_check.py`): deliberate breakages detected | 77 / 77 |
 
 ```

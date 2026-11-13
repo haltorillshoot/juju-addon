@@ -127,6 +127,63 @@ T.test("a corroborated hit (health first, Juju after) also teaches the window", 
   T.ok(c.inst.diag:window() > w0, "window did not learn from corroborated hits")
 end)
 
+-- LIVE: a knife swung every ~110ms keeps several shots in flight. Damage goes to the oldest of
+-- them, so its "latency" may belong to a much older swing. Feeding those numbers back into the
+-- window inflated the average to 13.7x ping and kept widening the window - a feedback loop.
+T.test("overlapping shots never steer the window, however many confirmations arrive", function()
+  local c = H.standard({ ping = 41 })
+  H.run(c, 3)
+  local w0 = c.inst.diag:window()
+  for i = 1, 20 do
+    H.shoot(c)                       -- swing every 110ms, confirmations take 300ms:
+    c.sim.task.delay(0.30, function()   -- several swings are always in flight at once
+      c.J.signals.on_local_bullet_confirmed:Fire(c.enemies[1], { Name = "Head" }, "-15")
+    end)
+    H.run(c, 0.11)
+  end
+  H.settle(c)
+  T.ok(H.stats(c).hits > 0, "hits are still recorded")
+  T.near(c.inst.diag:window(), w0, 1e-9, "but the window must not drift")
+  T.eq(c.inst.diag:trusted_latency(), nil, "no latency here is trustworthy")
+  T.ok(c.inst.engine.counters.latency_ambiguous > 0)
+  T.eq(c.inst.engine.counters.latency_clean, 0)
+  H.check_invariant(c, T)
+end)
+
+T.test("isolated shots still teach the window, so adaptation is not lost", function()
+  local c = H.standard({ ping = 41 })
+  H.run(c, 3)
+  local w0 = c.inst.diag:window()
+  for i = 1, 8 do
+    H.shoot(c)                       -- one shot at a time, nothing else in flight
+    c.sim.task.delay(0.30, function()
+      c.J.signals.on_local_bullet_confirmed:Fire(c.enemies[1], { Name = "Head" }, "-15")
+    end)
+    H.run(c, 2)
+  end
+  T.eq(c.inst.engine.counters.latency_clean, 8)
+  T.eq(c.inst.engine.counters.latency_ambiguous, 0)
+  T.ok(c.inst.diag:window() > w0, "a clean measurement must still adapt the window")
+  T.contains(c.inst.report(), "8 clean, 0 discarded")
+end)
+
+T.test("the inflation loop cannot start: a long window does not feed itself", function()
+  local c = H.standard({ ping = 41 })
+  H.run(c, 3)
+  -- rapid fire under an already-wide window, exactly the live situation
+  c.inst.cfgobj:set("window_min", 0.613)
+  local w0 = c.inst.diag:window()
+  for i = 1, 30 do
+    H.shoot(c)
+    c.sim.task.delay(0.45, function()
+      c.J.signals.on_local_bullet_confirmed:Fire(c.enemies[1], { Name = "Head" }, "-15")
+    end)
+    H.run(c, 0.11)
+  end
+  H.settle(c)
+  T.near(c.inst.diag:window(), w0, 1e-9, "the window must not grow from its own misattribution")
+end)
+
 T.test("the report names the trusted sample count and p95", function()
   local c = H.standard({ ping = 52 })
   for _, lat in ipairs(LIVE_LAT) do
