@@ -184,6 +184,30 @@ Even the placeholder file that came with the folder is not loadable, which is a 
 "there is a file in the addons folder" says nothing about whether Juju can see it. Installed as
 `JHC Hit Checker.luau`, it compiles as Luau and satisfies the loader's own rule.
 
+## 4g. A real defect the live run exposed: weapon switches discarded shots
+
+The first full addon-loaded session reported:
+
+```
+[weapon:doublebarrel] att=5 hit=0 miss=0 unconf=5     <- 100% discarded
+[weapon:knife]        att=227 hit=11 miss=188 unconf=28
+unconfirmed reasons: weapon_changed=33
+```
+
+Every Double Barrel shot was thrown away as `weapon_changed`, against ~12% of knife swings. A gun
+whose Tool is re-parented when it fires produces exactly that pattern, and the weapon the user cared
+about most yielded no statistics at all.
+
+The rule itself was wrong, whatever the trigger: **once the bullet has left, the weapon in your hands
+no longer decides whether it hit.** `on_local_bullet_confirmed` attributes the hit to the local
+player's bullet, and health-based attribution uses the shot's own window and candidate set. Neither
+consults the currently equipped tool.
+
+Weapon changes are now recorded (`weapon switches=N, shots still in flight across one=M`) instead of
+invalidating the shot. The only thing a switch still does is disable the `not_fired` verdict, because
+the original weapon's ammo counter can no longer be watched. Respawn and death still invalidate: there
+the character state really has changed.
+
 ## 5. Still unverified
 
 * Semantics of `on_local_bullet_fired` (never fired), whether `on_player_bullet_fired` includes your own

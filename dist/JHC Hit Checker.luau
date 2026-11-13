@@ -1093,6 +1093,7 @@ function E:_init_state()
   self.counters = {
     late_damage = 0, early_damage = 0, unattributed_damage = 0, fires_matched = 0,
     fire_unmatched = 0, invalid_events = 0, clock_anomaly = 0, timer_failures = 0,
+    weapon_switches = 0, shots_spanning_switch = 0,
     juju_confirms = 0, corroborated = 0, confirm_pellets = 0, confirm_unmatched = 0,
   }
   self.reasons = {}                 -- unconfirmed reason -> count
@@ -1278,7 +1279,7 @@ function E:_expire(shot, t)
       outcome, reason = "unconfirmed", "ambiguous_overlap"
     elseif shot.late_damage then
       outcome, reason = "unconfirmed", "late_damage"
-    elseif shot.ammo_tracked and not shot.fire then
+    elseif shot.ammo_tracked and not shot.fire and not shot.weapon_switched then
       outcome, reason = "not_fired", "no_ammo_change"
     else
       outcome = "miss"
@@ -1598,6 +1599,30 @@ end
 -- ---------------------------------------------------------------------------------------
 -- Respawn / weapon switch / weapon removal while shots are in flight. Damage that still arrives
 -- is a hit as usual; silence becomes `unconfirmed(reason)` instead of `miss`.
+-- A weapon change while shots are in flight.
+--
+-- LIVE FINDING: this used to call note_context("weapon_changed"), which made every affected shot
+-- "unconfirmed". In the real game that discarded 100% of Double Barrel shots (the gun re-parents or
+-- is swapped within the confirmation window) while costing only ~12% of knife shots, so the weapon
+-- the user most cared about produced no usable statistics at all.
+--
+-- It was also wrong: once a bullet has left, the weapon you are holding no longer decides whether
+-- it hit. Juju's on_local_bullet_confirmed attributes the hit to the local player's bullet, and
+-- health-based attribution uses the shot's own time window and candidate set. So a switch is
+-- recorded for diagnostics, and only disables the not_fired rule (the original weapon's ammo can no
+-- longer be observed). Genuine context changes - respawn, death - still invalidate via note_context.
+function E:note_weapon_switch()
+  if self.dead then return end
+  self.counters.weapon_switches = self.counters.weapon_switches + 1
+  for i = 1, #self.pending do
+    local s = self.pending[i]
+    if not s.weapon_switched then
+      s.weapon_switched = true
+      self.counters.shots_spanning_switch = self.counters.shots_spanning_switch + 1
+    end
+  end
+end
+
 function E:note_context(reason)
   if self.dead then return end
   for i = 1, #self.pending do
@@ -2075,7 +2100,7 @@ function W:_maybe_equip(inst)
   if not is_tool(inst) then return end
   if self.current and self.current.tool == inst then return end   -- duplicate ChildAdded
   if self.current then
-    self.engine:note_context("weapon_changed")
+    self.engine:note_weapon_switch()
     self.bag:drop_prefix("tool:")
     self.current = nil
   end
@@ -2084,10 +2109,7 @@ end
 
 function W:_maybe_unequip(inst)
   if not (self.current and self.current.tool == inst) then return end
-  local removed = false
-  local ok, parent = pcall(function() return inst.Parent end)
-  if ok and parent == nil then removed = true end
-  self.engine:note_context(removed and "weapon_removed" or "weapon_changed")
+  self.engine:note_weapon_switch()
   self.bag:drop_prefix("tool:")
   self.current = nil
   self.auto:update({ weapon_is_dbs = false })
@@ -2446,6 +2468,8 @@ function UI:report()
   add("counters: late=%d early=%d unattributed_dmg=%d fires_matched=%d fire_unmatched=%d invalid=%d clock_anomaly=%d timer_fail=%d",
     c.late_damage, c.early_damage, c.unattributed_damage, c.fires_matched, c.fire_unmatched,
     c.invalid_events, c.clock_anomaly, c.timer_failures)
+  add("weapon switches=%d, shots still in flight across one=%d (recorded, no longer discarded)",
+    c.weapon_switches, c.shots_spanning_switch)
   local d = self.diag:snapshot()
   add("ping=%s avg=%s p95=%s jitter=%s samples=%d invalid=%d spikes=%d stalls=%d gap=%s gap_max=%.1f gap_warns=%d window=%s obs=%d trusted=%d%s",
     ms(d.ping), ms(d.avg), ms(d.p95), ms(d.jitter), d.samples, d.invalid, d.spikes, d.stalls,

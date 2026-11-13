@@ -43,13 +43,13 @@ T.test("duplicate ChildAdded for the same tool does not stack connections", func
   T.eq(H.stats(c).attempted, 1)
 end)
 
-T.test("a duplicate ChildAdded must not taint an in-flight shot with 'weapon_changed'", function()
+T.test("a duplicate ChildAdded is not treated as a weapon switch at all", function()
   local c = H.standard()
   H.shoot(c)
   c.me.Character.ChildAdded:Fire(c.tool)
   H.settle(c)
   T.eq(c.inst.engine.last_shot.outcome, "miss")
-  T.is_nil(c.inst.engine.reasons.weapon_changed)
+  T.eq(c.inst.engine.counters.weapon_switches, 0, "re-announcing the same tool is not a switch")
 end)
 
 T.test("re-equipping the same tool repeatedly never leaves more than one listener", function()

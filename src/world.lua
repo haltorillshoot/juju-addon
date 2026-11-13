@@ -282,7 +282,7 @@ function W:_maybe_equip(inst)
   if not is_tool(inst) then return end
   if self.current and self.current.tool == inst then return end   -- duplicate ChildAdded
   if self.current then
-    self.engine:note_context("weapon_changed")
+    self.engine:note_weapon_switch()
     self.bag:drop_prefix("tool:")
     self.current = nil
   end
@@ -291,10 +291,7 @@ end
 
 function W:_maybe_unequip(inst)
   if not (self.current and self.current.tool == inst) then return end
-  local removed = false
-  local ok, parent = pcall(function() return inst.Parent end)
-  if ok and parent == nil then removed = true end
-  self.engine:note_context(removed and "weapon_removed" or "weapon_changed")
+  self.engine:note_weapon_switch()
   self.bag:drop_prefix("tool:")
   self.current = nil
   self.auto:update({ weapon_is_dbs = false })

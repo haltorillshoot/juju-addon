@@ -103,6 +103,12 @@ M = [
     ("world: pellets not coalesced into one shot", "world.lua", "  if self.engine:add_pellet(t, cur.weapon.key) then return end   -- same trigger pull\n", ""),
     ("engine: pellet window unbounded", "engine.lua", "  if last == nil or (t - last) > self.cfg.pellet_gap then return false end", "  if last == nil then return false end"),
     ("engine: pellet after a fast hit opens a new shot", "engine.lua", "  -- the shot already resolved (a fast hit): still its pellet, do not open a new shot\n  return true", "  return false"),
+
+    # ---- weapon switches must not discard shots (live Double Barrel finding)
+    ('engine: weapon switch no longer recorded', 'engine.lua', '  self.counters.weapon_switches = self.counters.weapon_switches + 1', '  if true then return end'),
+    ('engine: switch stops disabling the not_fired guard', 'engine.lua', 'and not shot.fire and not shot.weapon_switched then', 'and not shot.fire then'),
+    ('world: equipping another weapon invalidates again', 'world.lua', '    self.engine:note_weapon_switch()', '    self.engine:note_context("weapon_changed")'),
+    ('world: unequipping invalidates again', 'world.lua', '  self.engine:note_weapon_switch()\n  self.bag:drop_prefix', '  self.engine:note_context("weapon_removed")\n  self.bag:drop_prefix'),
 ]
 
 

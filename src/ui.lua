@@ -138,6 +138,8 @@ function UI:report()
   add("counters: late=%d early=%d unattributed_dmg=%d fires_matched=%d fire_unmatched=%d invalid=%d clock_anomaly=%d timer_fail=%d",
     c.late_damage, c.early_damage, c.unattributed_damage, c.fires_matched, c.fire_unmatched,
     c.invalid_events, c.clock_anomaly, c.timer_failures)
+  add("weapon switches=%d, shots still in flight across one=%d (recorded, no longer discarded)",
+    c.weapon_switches, c.shots_spanning_switch)
   local d = self.diag:snapshot()
   add("ping=%s avg=%s p95=%s jitter=%s samples=%d invalid=%d spikes=%d stalls=%d gap=%s gap_max=%.1f gap_warns=%d window=%s obs=%d trusted=%d%s",
     ms(d.ping), ms(d.avg), ms(d.p95), ms(d.jitter), d.samples, d.invalid, d.spikes, d.stalls,
