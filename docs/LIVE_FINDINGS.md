@@ -103,6 +103,30 @@ The weapon is a normal Tool on the character after all: `Tool:[DoubleBarrel]` (t
 `[Knife]`, `[Pizza]`, `[Burger]`, `[Taco]`, `[Chicken]`, `[Tip Jar]`. The real Double Barrel name
 `[DoubleBarrel]` matches the shipped alias `doublebarrel`.
 
+## 4d. Final run - both shot sources working end to end
+
+After the gun fix, with the counters reset and ~30 s of play:
+
+```
+shots=114 hits=15 miss=76 unconf=23 nofire=0 pend=0 hit%=16.5%  jujuConf=15/15
+window=497ms trusted=15 trustedP95=397ms  lat(avg/min/max)=219ms/65ms/397ms
+bullets=15  invariant=true
+events: #115 knife via=activated ... | gun shots via=bullet
+```
+
+* Both sources ran together: melee through `Tool.Activated` (`via=activated`), gun shots through the
+  bullet signal, with 15 bullets coalescing into their trigger pulls.
+* A separate check isolated the coalescing: **raw signal 5 bullets -> addon 5 bullets -> 1 shot**
+  (one Double Barrel pull).
+* **The window grew 200 ms -> 497 ms** by itself, from 15 Juju-confirmed latencies (p95 397 ms).
+  Under the previous fixed window every hit slower than 200 ms - and real hits reached 397 ms - would
+  have been reported as a miss. This is the trusted-latency change paying off on real data.
+* Weapon identification live: `Weapon: [DoubleBarrel] [DBS]`, `key=doublebarrel dbs=true`.
+* `invariant=true` throughout; unload removed all 9 HUD objects and cleared `jhc_loaded`.
+
+Note the ~16% hit rate is simply how the session went (long-range shooting, knife swings at air); it is
+a measurement, not a target.
+
 ## 5. Still unverified
 
 * Semantics of `on_local_bullet_fired` (never fired), whether `on_player_bullet_fired` includes your own

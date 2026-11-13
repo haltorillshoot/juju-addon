@@ -112,7 +112,11 @@ in `docs/LIVE_FINDINGS.md`. In short: the addon loaded and tracked real `Tool.Ac
 targets and the Juju `auto_mode` flag; it exposed two real defects the mocks had hidden
 (`create_connection`/`create_section` returning nil outside an addon context) which were fixed and
 re-verified live; and it revealed Juju's undocumented native bullet signals, now used as hit evidence.
-**Not** verified live: the menu under Juju's real addon loader, the on-screen HUD, melee/ammo signals.
+**Not** verified live: the menu under Juju's real addon loader, the on-screen HUD, ammo signals.
+
+Four live runs in total. The last one exercised the whole pipeline: 114 shot attempts (melee via
+`Tool.Activated`, gun shots via the bullet signal), 15 hits all confirmed by Juju, the invariant
+holding, and the confirmation window adapting 200 ms -> 497 ms from measured confirmed latencies.
 
 The second live run (107 tracked attempts, knife) produced the measurement that drove the last change:
 

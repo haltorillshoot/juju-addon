@@ -95,6 +95,14 @@ M = [
     ("engine: hit latency always marked trusted", "engine.lua", "self.diag, lat, shot.juju_confirmed == true)", "self.diag, lat, true)"),
     ("engine: corroboration does not teach the window", "engine.lua", "      if h.latency then pcall(self.diag.note_latency, self.diag, h.latency, true) end\n", ""),
     ("diag: reset keeps trusted latencies", "diag.lua", "self.lat:clear(); self.tlat:clear()", "self.lat:clear()"),
+
+    # ---- gun shot source (third live run)
+    ("world: bullet signal not hooked", "world.lua", "  self:_hook_bullet_signal()\n", ""),
+    ("world: use_bullet_signal=false ignored", "world.lua", "  if not self.cfg.use_bullet_signal then return end\n", ""),
+    ("world: bullets invent shots with no weapon", "world.lua", "  if cur == nil then return end                      -- weapon unknown: do not invent a shot", "  if false then return end"),
+    ("engine: pellets not coalesced into one shot", "engine.lua", "  if self.engine:add_pellet(t, cur.weapon.key) then return end   -- same trigger pull\n", ""),
+    ("engine: pellet window unbounded", "engine.lua", "  if last == nil or (t - last) > self.cfg.pellet_gap then return false end", "  if last == nil then return false end"),
+    ("engine: pellet after a fast hit opens a new shot", "engine.lua", "  -- the shot already resolved (a fast hit): still its pellet, do not open a new shot\n  return true", "  return false"),
 ]
 
 
