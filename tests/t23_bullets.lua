@@ -72,18 +72,27 @@ T.test("pellets arriving after a fast hit do not open a second shot", function()
   fire(c, 1)
   c.J.signals.on_local_bullet_confirmed:Fire(c.enemies[1], { Name = "Head" }, "-85")  -- resolves at once
   T.eq(H.stats(c).hits, 1)
+  -- past dedupe_eps (20ms) but still inside pellet_gap (50ms): only the pellet rule can absorb
+  -- these, so the duplicate-attempt filter cannot mask a regression here
+  c.sim:advance(0.03)
+  T.ok(0.03 > c.inst.cfg.dedupe_eps, "the test must sit beyond the dedupe window to be meaningful")
   fire(c, 2)                            -- remaining pellets of the same pull
   H.settle(c)
-  T.eq(H.stats(c).attempted, 1, "late pellets must not count as a new shot")
+  local s = H.stats(c)
+  T.eq(s.attempted, 1, "late pellets must not count as a new shot")
+  T.eq(s.deduped, 0, "and must be absorbed as pellets, not merely deduplicated")
   H.check_invariant(c, T)
 end)
 
-T.test("no weapon equipped: bullets are ignored rather than invented into shots", function()
+T.test("no weapon equipped: bullets are ignored cleanly, not turned into shots or errors", function()
   local c = H.standard({ tool = false })
   fire(c, 3)
   H.settle(c)
   T.eq(H.stats(c).attempted, 0)
   T.eq(#c.sim.errors, 0)
+  -- the bullets must be dropped BEFORE any work is attempted: no handler errors, nothing counted
+  T.eq(c.inst.errors, 0, "a bullet with no weapon must not raise inside the handler")
+  T.eq(c.inst.world.counts.bullets_seen, 0, "a bullet with no weapon must not be counted")
 end)
 
 T.test("melee still works through Tool.Activated, and the two sources do not double count", function()
