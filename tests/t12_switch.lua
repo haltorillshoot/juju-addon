@@ -1,0 +1,116 @@
+local T = require("tf")
+local H = require("harness")
+local Signal = H.Mock.Signal
+
+T.suite("12 Weapon switching")
+
+T.test("switching weapon mid-window without damage -> unconfirmed(weapon_changed)", function()
+  local c = H.standard()
+  local rev = c.g:give_tool(c.me, "[Revolver]")
+  H.shoot(c)
+  H.run(c, 0.05)
+  c.g:unequip(c.me, c.tool)
+  c.g:equip(c.me, rev)
+  H.settle(c)
+  T.eq(H.stats(c).misses, 0)
+  T.eq(c.inst.engine.reasons.weapon_changed, 1)
+end)
+
+T.test("damage after a switch is still credited to the weapon that fired", function()
+  local c = H.standard()
+  local rev = c.g:give_tool(c.me, "[Revolver]")
+  H.shoot_hit(c, c.enemies[1], 0.12, 20)
+  H.run(c, 0.05)
+  c.g:unequip(c.me, c.tool)
+  c.g:equip(c.me, rev)
+  H.settle(c)
+  T.eq(H.stats(c, "weapon:doublebarrelsg").hits, 1)
+  T.eq(H.stats(c, "weapon:revolver").attempted, 0)
+end)
+
+T.test("the previous tool is inert after a switch", function()
+  local c = H.standard()
+  local rev = c.g:give_tool(c.me, "[Revolver]")
+  c.g:unequip(c.me, c.tool)
+  c.g:equip(c.me, rev)
+  H.shoot(c)                                    -- old tool fires: nobody listens
+  H.settle(c)
+  T.eq(H.stats(c).attempted, 0)
+  H.shoot(c, rev)
+  H.settle(c)
+  T.eq(H.stats(c, "weapon:revolver").attempted, 1)
+end)
+
+T.test("new tool appears BEFORE the old one leaves (reverse ordering) -> still correct", function()
+  local c = H.standard()
+  local rev = c.g:give_tool(c.me, "[Revolver]")
+  c.g:equip(c.me, rev)                          -- ChildAdded first, both in the character now
+  T.eq(c.inst.world.current.tool, rev)
+  c.g:unequip(c.me, c.tool)                     -- ChildRemoved for the OLD tool afterwards
+  T.eq(c.inst.world.current.tool, rev, "late removal of the old tool must not clear the new one")
+  T.eq(c.tool.Activated.live, 0)
+  T.eq(rev.Activated.live, 1)
+end)
+
+T.test("destroying the equipped tool -> weapon_removed, state cleared", function()
+  local c = H.standard()
+  H.shoot(c)
+  H.run(c, 0.05)
+  c.tool:Destroy()
+  T.is_nil(c.inst.world.current)
+  H.settle(c)
+  T.eq(c.inst.engine.reasons.weapon_removed, 1)
+  T.eq(H.stats(c).misses, 0)
+  T.eq(c.tool.Activated.live, 0)
+end)
+
+T.test("unequipping to the backpack is 'weapon_changed', not 'removed'", function()
+  local c = H.standard()
+  H.shoot(c)
+  c.g:unequip(c.me, c.tool)
+  H.settle(c)
+  T.eq(c.inst.engine.reasons.weapon_changed, 1)
+  T.is_nil(c.inst.engine.reasons.weapon_removed)
+end)
+
+T.test("100 rapid switches between two tools: one listener at most, no leak", function()
+  local c = H.standard()
+  local a = c.tool
+  local b = c.g:give_tool(c.me, "[Revolver]")
+  local base = Signal.live_total
+  for i = 1, 100 do
+    c.g:unequip(c.me, a); c.g:equip(c.me, b)
+    c.g:unequip(c.me, b); c.g:equip(c.me, a)
+  end
+  T.eq(Signal.live_total, base)
+  T.eq(a.Activated.live, 1); T.eq(b.Activated.live, 0)
+  T.eq(c.inst.world.current.tool, a)
+end)
+
+T.test("switching to a non-DBS weapon and back drives Auto Mode ARMED <-> ACTIVE", function()
+  local c = H.standard()
+  c.J.user_set("Auto Mode", "Auto Mode DBS", true)
+  local rev = c.g:give_tool(c.me, "[Revolver]")
+  c.g:unequip(c.me, c.tool); c.g:equip(c.me, rev)
+  T.eq(c.inst.auto.state, "ARMED")
+  c.g:unequip(c.me, rev); c.g:equip(c.me, c.tool)
+  T.eq(c.inst.auto.state, "ACTIVE")
+end)
+
+T.test("per-weapon statistics survive switching", function()
+  local c = H.standard({ enemies = 1 })
+  local rev = c.g:give_tool(c.me, "[Revolver]")
+  for i = 1, 3 do
+    H.shoot_hit(c, c.enemies[1], 0.07, 2); H.run(c, 1)
+    c.g:unequip(c.me, c.tool); c.g:equip(c.me, rev)
+    H.shoot(c, rev); H.run(c, 1)
+    c.g:unequip(c.me, rev); c.g:equip(c.me, c.tool)
+  end
+  local d, r = H.stats(c, "weapon:doublebarrelsg"), H.stats(c, "weapon:revolver")
+  T.eq(d.attempted, 3); T.eq(d.hits, 3)
+  T.eq(r.attempted, 3); T.eq(r.misses, 3)
+  T.eq(H.stats(c).attempted, 6)
+  H.check_invariant(c, T)
+end)
+
+return true
