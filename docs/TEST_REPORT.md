@@ -21,7 +21,7 @@ annotations, `goto`), but Luau parsing/semantics are unverified.
 | `src/` on LuaJIT 2.1.0-beta3 | 294 / 294 |
 | `dist/jhc_hood_customs.lua` (shipped single file) on LuaJIT 2.1.1724 | 294 / 294 |
 | `dist/jhc_hood_customs.lua` on LuaJIT 2.1.0-beta3 | 294 / 294 |
-| Mutation check (`tools/mutation_check.py`): deliberate breakages detected | 71 / 71 |
+| Mutation check (`tools/mutation_check.py`): deliberate breakages detected | 77 / 77 |
 
 ```
  01 Addon initialization                  14     10 Event handling                 14
@@ -56,8 +56,13 @@ respawns, 100 weapon switches and 40 player joins/leaves.
 * **Mutation check.** 71 deliberate one-line breakages of `src/` (remove the causal floor, stop
   releasing a connection key, let a hit through without damage, ...). The first run caught 32 of 38;
   the 6 survivors were gaps in my tests (and one equivalent mutant) and got new tests. The list then
-  grew with each round of findings (review, live run, trusted-latency window) to 71, and three more
-  survivors along the way were weak tests that were tightened. Final: 71 / 71.
+  grew with each round of findings (review, live runs, trusted-latency window, gun shot source) to 77.
+  Every round found survivors, and every survivor was a weak test rather than a bug: the last three
+  were a bullet with no weapon equipped (the mutant raised inside a handler, which the error handler
+  swallows, so the visible outcome was identical), trailing pellets fired in the same instant (the
+  engine's duplicate filter absorbed them either way), and one entry aimed at the wrong file, which
+  the tool reported as a pattern error instead of a pass. Final, certified against the shipped code:
+  **77 / 77 detected, 0 survivors, 0 pattern errors.**
 * **Vacuous tests found and fixed.** The Drawing mock initially never counted text writes, so the
   "HUD only rewrites changed lines" test passed for the wrong reason; the memory test was measuring the
   mock's own call log. Both were corrected (the HUD test now also asserts the mock saw writes).
