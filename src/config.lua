@@ -31,6 +31,11 @@ C.defaults = {
   use_bullet_signal = true,
   pellet_gap = 0.05,         -- bullets this close together (s) are one trigger pull
   confirm_match = 0.5,       -- a Juju confirmation corroborates a health-inferred hit up to this long after it (s)
+  -- LIVE FINDING: confirmations arrive 200-330ms after the shot while the window sits at its 200ms
+  -- floor, so every shot expired before its own confirmation and nothing could ever be confirmed -
+  -- which also starved the window of the trusted latencies it needs to grow. A confirmation that
+  -- arrives this long after an already-resolved shot promotes it to a hit and teaches the window.
+  confirm_horizon = 1.5,
 
   -- which players' damage can confirm a hit: "auto" (ragebot target if set, else all),
   -- "target" (ragebot target only), "all" (every other player)
@@ -88,6 +93,7 @@ local SCHEMA = {
   tab_summary = { "boolean" }, auto_mode = { "boolean" },
   follow_host_auto = { "boolean" }, host_auto_flag = { "string" },
   use_juju_signals = { "boolean" }, confirm_match = { "number", 0.05, 2 },
+  confirm_horizon = { "number", 0, 5 },
   use_bullet_signal = { "boolean" }, pellet_gap = { "number", 0, 0.3 },
   scope = { "enum", { "auto", "target", "all" } },
   causal_check = { "boolean" }, causal_ratio = { "number", 0, 1 },

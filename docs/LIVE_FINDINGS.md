@@ -208,6 +208,28 @@ invalidating the shot. The only thing a switch still does is disable the `not_fi
 the original weapon's ammo counter can no longer be watched. Respawn and death still invalidate: there
 the character state really has changed.
 
+## 4h. The deadlock: confirmations arrived after their own shot expired
+
+With the weapon-switch fix in place the next session read:
+
+```
+weapon:doublebarrel  att=9 hit=0 miss=9 unconf=0      <- no longer discarded
+confirms=8  corroborated=0  unmatched=8               <- but 8 confirmed hits matched nothing
+ping=32ms  window=200ms  trusted=0
+```
+
+Juju confirmed 8 hits and the addon recorded none. At 32 ms ping the window sits on its 200 ms
+floor, while confirmations arrive 200-330 ms after the shot, so every shot expired before its own
+confirmation. And because the window only learns from *confirmed* hits, it could never grow out of
+the hole: a self-sustaining deadlock of my own making.
+
+A confirmation that arrives after its shot has expired (within `confirm_horizon`, default 1.5 s) now
+**promotes** that shot to a confirmed hit: Juju attributes the bullet to the local player, so this is
+positive evidence, not a guess. The correction withdraws the old verdict - including its unconfirmed
+reason counter - and the measured latency feeds the window, so after a handful of shots the window
+has grown to cover the real confirmation delay and promotions stop being needed. The report shows
+`of which promoted after their window closed: N`.
+
 ## 5. Still unverified
 
 * Semantics of `on_local_bullet_fired` (never fired), whether `on_player_bullet_fired` includes your own

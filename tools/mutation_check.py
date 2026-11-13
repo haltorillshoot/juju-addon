@@ -109,6 +109,17 @@ M = [
     ('engine: switch stops disabling the not_fired guard', 'engine.lua', 'and not shot.fire and not shot.weapon_switched then', 'and not shot.fire then'),
     ('world: equipping another weapon invalidates again', 'world.lua', '    self.engine:note_weapon_switch()', '    self.engine:note_context("weapon_changed")'),
     ('world: unequipping invalidates again', 'world.lua', '  self.engine:note_weapon_switch()\n  self.bag:drop_prefix', '  self.engine:note_context("weapon_removed")\n  self.bag:drop_prefix'),
+
+    # ---- late Juju confirmations promote an expired shot (live deadlock fix)
+    ('engine: late confirmations never promote', 'engine.lua', '      if self:_promote_to_hit(s, t, uid, info.amount) then return "promoted" end', '      if false then return "promoted" end'),
+    ('engine: promotion ignores confirm_horizon', 'engine.lua', 'and (t - s.t) <= cfg.confirm_horizon then', 'and true then'),
+    # NOTE: no entry for the `prev == "hit"` guard inside _promote_to_hit. The calling loop already
+    # filters those shots out (`s.outcome ~= "hit"`), so removing either guard on its own is an
+    # equivalent mutant - the behaviour is identical. The redundancy is deliberate defence in depth.
+    ('engine: promotion forgets to undo the old verdict', 'engine.lua', '  if prev == "miss" then\n    self:_apply(shot, "misses", -1)', '  if prev == "miss" then\n    self:_apply(shot, "misses", 0)'),
+    ('engine: promotion does not teach the window', 'engine.lua', '  self:_record_hit_latency(shot)\n  self.recent_hit:push(shot)\n  self.counters.promoted', '  self.recent_hit:push(shot)\n  self.counters.promoted'),
+    ('engine: promoted hit is not marked confirmed', 'engine.lua', '  self:_apply(shot, "confirmed_hits", 1)\n  self:_apply(shot, "damage", shot.damage_total)', '  self:_apply(shot, "damage", shot.damage_total)'),
+    ('engine: resolved shots are not remembered', 'engine.lua', '  self.recent_shot:push(shot)', '  if false then self.recent_shot:push(shot) end'),
 ]
 
 

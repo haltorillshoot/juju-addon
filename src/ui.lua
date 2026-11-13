@@ -162,6 +162,7 @@ function UI:report()
   add("juju bullet signal (on_player_bullet_fired, shot source for guns): %s  bullets=%d",
     (self.world and self.world.bullet_hooked) and "hooked" or "not available/disabled",
     self.world and self.world.counts.bullets_seen or 0)
+  add("  of which promoted after their window closed: %d (each one also teaches the window)", c.promoted)
   add("juju native hit signal (on_local_bullet_confirmed): %s  confirms=%d corroborated=%d pellets=%d unmatched=%d",
     (self.world and self.world.juju_confirm_hooked) and "hooked" or "not available/disabled", c.juju_confirms,
     c.corroborated, c.confirm_pellets, c.confirm_unmatched)

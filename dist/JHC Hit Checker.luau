@@ -273,6 +273,11 @@ C.defaults = {
   use_bullet_signal = true,
   pellet_gap = 0.05,         -- bullets this close together (s) are one trigger pull
   confirm_match = 0.5,       -- a Juju confirmation corroborates a health-inferred hit up to this long after it (s)
+  -- LIVE FINDING: confirmations arrive 200-330ms after the shot while the window sits at its 200ms
+  -- floor, so every shot expired before its own confirmation and nothing could ever be confirmed -
+  -- which also starved the window of the trusted latencies it needs to grow. A confirmation that
+  -- arrives this long after an already-resolved shot promotes it to a hit and teaches the window.
+  confirm_horizon = 1.5,
 
   -- which players' damage can confirm a hit: "auto" (ragebot target if set, else all),
   -- "target" (ragebot target only), "all" (every other player)
@@ -330,6 +335,7 @@ local SCHEMA = {
   tab_summary = { "boolean" }, auto_mode = { "boolean" },
   follow_host_auto = { "boolean" }, host_auto_flag = { "string" },
   use_juju_signals = { "boolean" }, confirm_match = { "number", 0.05, 2 },
+  confirm_horizon = { "number", 0, 5 },
   use_bullet_signal = { "boolean" }, pellet_gap = { "number", 0, 0.3 },
   scope = { "enum", { "auto", "target", "all" } },
   causal_check = { "boolean" }, causal_ratio = { "number", 0, 1 },
@@ -1094,12 +1100,13 @@ function E:_init_state()
     late_damage = 0, early_damage = 0, unattributed_damage = 0, fires_matched = 0,
     fire_unmatched = 0, invalid_events = 0, clock_anomaly = 0, timer_failures = 0,
     weapon_switches = 0, shots_spanning_switch = 0,
-    juju_confirms = 0, corroborated = 0, confirm_pellets = 0, confirm_unmatched = 0,
+    juju_confirms = 0, corroborated = 0, confirm_pellets = 0, confirm_unmatched = 0, promoted = 0,
   }
   self.reasons = {}                 -- unconfirmed reason -> count
   self.bursts = {}                  -- uid -> open damage burst
   self.recent_miss = U.Ring.new(16) -- recently resolved misses (for late-damage detection)
   self.recent_hit = U.Ring.new(16)  -- recently resolved hits (for Juju confirmation matching)
+  self.recent_shot = U.Ring.new(16) -- every recently resolved shot (for late confirmations)
   self.cbursts = {}                 -- uid -> last Juju confirmation (pellet de-duplication)
   self.events = U.Ring.new(self.cfg.log_size)
   self.last_attempt = {}            -- weapon key -> time of last accepted attempt
@@ -1305,27 +1312,15 @@ function E:_finish(shot, outcome, reason, t)
   shot.outcome = outcome
   shot.reason = reason
   shot.done_t = t
+  self.recent_shot:push(shot)
 
   if outcome == "hit" then
     self:_apply(shot, "hits", 1)
     self:_apply(shot, "damage", shot.damage_total)
-    local lat = shot.latency
-    local list = shot.b
-    for i = 1, #list do
-      local b = list[i]
-      b.lat_sum = b.lat_sum + lat
-      b.lat_n = b.lat_n + 1
-      if b.lat_min == nil or lat < b.lat_min then b.lat_min = lat end
-      if b.lat_max == nil or lat > b.lat_max then b.lat_max = lat end
-      if shot.ping and shot.ping > 0 then
-        b.ratio_sum = b.ratio_sum + lat / (shot.ping / 1000)
-        b.ratio_n = b.ratio_n + 1
-      end
-    end
-    pcall(self.diag.note_latency, self.diag, lat, shot.juju_confirmed == true)
+    self:_record_hit_latency(shot)
     self.recent_hit:push(shot)
     self:_event(t, "hit", string.format("#%d %s latency=%.0fms dmg=%.1f", shot.id, shot.weapon.key,
-      lat * 1000, shot.damage_total))
+      (shot.latency or 0) * 1000, shot.damage_total))
   elseif outcome == "miss" then
     self:_apply(shot, "misses", 1)
     self.recent_miss:push(shot)
@@ -1474,6 +1469,64 @@ function E:register_damage(info)
   return "unattributed"
 end
 
+function E:_record_hit_latency(shot)
+  local lat = shot.latency
+  if lat == nil then return end
+  local list = shot.b
+  for i = 1, #list do
+    local b = list[i]
+    b.lat_sum = b.lat_sum + lat
+    b.lat_n = b.lat_n + 1
+    if b.lat_min == nil or lat < b.lat_min then b.lat_min = lat end
+    if b.lat_max == nil or lat > b.lat_max then b.lat_max = lat end
+    if shot.ping and shot.ping > 0 then
+      b.ratio_sum = b.ratio_sum + lat / (shot.ping / 1000)
+      b.ratio_n = b.ratio_n + 1
+    end
+  end
+  pcall(self.diag.note_latency, self.diag, lat, shot.juju_confirmed == true)
+end
+
+-- A Juju confirmation that arrives after its shot already expired. Juju attributes the bullet to
+-- the local player, so this is positive evidence the shot hit: the earlier verdict is corrected and
+-- the measured latency teaches the window (without this the window can never grow past its floor).
+function E:_promote_to_hit(shot, t, uid, amount)
+  local prev = shot.outcome
+  if prev == "hit" then return false end
+  if prev == "miss" then
+    self:_apply(shot, "misses", -1)
+  elseif prev == "unconfirmed" then
+    self:_apply(shot, "unconfirmed", -1)
+    local key = tostring(shot.reason)
+    if self.reasons[key] then
+      self.reasons[key] = self.reasons[key] - 1
+      if self.reasons[key] <= 0 then self.reasons[key] = nil end
+    end
+  elseif prev == "not_fired" then
+    self:_apply(shot, "not_fired", -1)
+  else
+    return false
+  end
+  shot.outcome = "hit"
+  shot.reason = nil
+  shot.juju_confirmed = true
+  shot.promoted_from = prev
+  shot.victim = uid
+  shot.hit_t = t
+  shot.latency = t - shot.t
+  shot.damage_total = amount or shot.damage_total or 0
+  self:_apply(shot, "hits", 1)
+  self:_apply(shot, "confirmed_hits", 1)
+  self:_apply(shot, "damage", shot.damage_total)
+  self:_record_hit_latency(shot)
+  self.recent_hit:push(shot)
+  self.counters.promoted = self.counters.promoted + 1
+  self:_event(t, "promoted", string.format("#%d %s -> hit, Juju confirmed %.0fms after the shot (%.0fms past its window)",
+    shot.id, prev, shot.latency * 1000, (t - shot.deadline) * 1000))
+  self.on_change()
+  return true
+end
+
 -- ---------------------------------------------------------------------------------------
 -- Juju's own bullet confirmation (on_local_bullet_confirmed: player hit, part, damage text)
 -- ---------------------------------------------------------------------------------------
@@ -1545,6 +1598,15 @@ function E:register_confirm(info)
       self:_finish(s, "hit", nil, t)
       self:_apply(s, "confirmed_hits", 1)
       return "hit"
+    end
+  end
+
+  -- 3. the shot already expired: Juju says it hit, so correct the verdict and learn the latency
+  for i = self.recent_shot:size(), 1, -1 do
+    local s = self.recent_shot:get(i)
+    if s.outcome ~= "hit" and (s.cand[uid] or s.ncand == 0) and t >= s.t
+       and (t - s.t) <= cfg.confirm_horizon then
+      if self:_promote_to_hit(s, t, uid, info.amount) then return "promoted" end
     end
   end
 
@@ -2492,6 +2554,7 @@ function UI:report()
   add("juju bullet signal (on_player_bullet_fired, shot source for guns): %s  bullets=%d",
     (self.world and self.world.bullet_hooked) and "hooked" or "not available/disabled",
     self.world and self.world.counts.bullets_seen or 0)
+  add("  of which promoted after their window closed: %d (each one also teaches the window)", c.promoted)
   add("juju native hit signal (on_local_bullet_confirmed): %s  confirms=%d corroborated=%d pellets=%d unmatched=%d",
     (self.world and self.world.juju_confirm_hooked) and "hooked" or "not available/disabled", c.juju_confirms,
     c.corroborated, c.confirm_pellets, c.confirm_unmatched)
