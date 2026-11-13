@@ -1101,6 +1101,7 @@ function E:_init_state()
     fire_unmatched = 0, invalid_events = 0, clock_anomaly = 0, timer_failures = 0,
     weapon_switches = 0, shots_spanning_switch = 0,
     juju_confirms = 0, corroborated = 0, confirm_pellets = 0, confirm_unmatched = 0, promoted = 0,
+    confirm_duplicate = 0,
     latency_clean = 0, latency_ambiguous = 0,
   }
   self.reasons = {}                 -- unconfirmed reason -> count
@@ -1622,7 +1623,21 @@ function E:register_confirm(info)
     end
   end
 
+  -- A further confirmation for a shot already credited: a second pellet or multi-hit swing landing
+  -- later than burst_gap. Not a new hit, and not an orphan either - counting these as "unmatched"
+  -- made it look as though confirmed hits were being dropped.
+  for i = self.recent_hit:size(), 1, -1 do
+    local h = self.recent_hit:get(i)
+    if h.juju_confirmed and h.victim == uid and t >= h.hit_t and (t - h.hit_t) <= cfg.confirm_horizon then
+      self.counters.confirm_duplicate = self.counters.confirm_duplicate + 1
+      return "duplicate"
+    end
+  end
+
+  -- genuinely nothing to attach it to: Juju says a bullet of ours hit, but we never saw the shot
   self.counters.confirm_unmatched = self.counters.confirm_unmatched + 1
+  self:_event(t, "confirm_orphan", string.format("uid=%s confirmed, but no shot of ours matches it",
+    tostring(uid)))
   return "unmatched"
 end
 
@@ -2569,9 +2584,10 @@ function UI:report()
   add("  of which promoted after their window closed: %d (each one also teaches the window)", c.promoted)
   add("  latencies used to steer the window: %d clean, %d discarded as ambiguous (shots overlapped)",
     c.latency_clean, c.latency_ambiguous)
-  add("juju native hit signal (on_local_bullet_confirmed): %s  confirms=%d corroborated=%d pellets=%d unmatched=%d",
+  add("juju native hit signal (on_local_bullet_confirmed): %s  confirms=%d corroborated=%d pellets=%d dup=%d unmatched=%d",
     (self.world and self.world.juju_confirm_hooked) and "hooked" or "not available/disabled", c.juju_confirms,
-    c.corroborated, c.confirm_pellets, c.confirm_unmatched)
+    c.corroborated, c.confirm_pellets, c.confirm_duplicate, c.confirm_unmatched)
+  add("  dup = a later confirmation for a shot already credited; unmatched = no shot of ours matched it")
   add("connections: create_connection behaviour=%s direct-connect fallbacks=%d%s",
     tostring(self.host.connect_behaviour or "not probed yet"), self.host.connect_fallbacks or 0,
     self.host.dup_risk and "  !! duplicate-listener risk" or "")

@@ -165,9 +165,10 @@ function UI:report()
   add("  of which promoted after their window closed: %d (each one also teaches the window)", c.promoted)
   add("  latencies used to steer the window: %d clean, %d discarded as ambiguous (shots overlapped)",
     c.latency_clean, c.latency_ambiguous)
-  add("juju native hit signal (on_local_bullet_confirmed): %s  confirms=%d corroborated=%d pellets=%d unmatched=%d",
+  add("juju native hit signal (on_local_bullet_confirmed): %s  confirms=%d corroborated=%d pellets=%d dup=%d unmatched=%d",
     (self.world and self.world.juju_confirm_hooked) and "hooked" or "not available/disabled", c.juju_confirms,
-    c.corroborated, c.confirm_pellets, c.confirm_unmatched)
+    c.corroborated, c.confirm_pellets, c.confirm_duplicate, c.confirm_unmatched)
+  add("  dup = a later confirmation for a shot already credited; unmatched = no shot of ours matched it")
   add("connections: create_connection behaviour=%s direct-connect fallbacks=%d%s",
     tostring(self.host.connect_behaviour or "not probed yet"), self.host.connect_fallbacks or 0,
     self.host.dup_risk and "  !! duplicate-listener risk" or "")

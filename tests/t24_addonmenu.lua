@@ -131,6 +131,20 @@ T.test("Auto Mode and HUD controls work through the addon API", function()
   for _, o in ipairs(c.drawing.objects) do T.eq(o.Visible, false) end
 end)
 
+T.test("a host that announces defaults while creating elements cannot clobber the config", function()
+  local c = addon({ pre = function(x) x.J.fire_on_create = true end,
+    config = { enabled = true, hud = false, scope = "all", window_max = 1.3, auto_mode = true } })
+  T.ok(c.inst, tostring(c.err))
+  T.eq(c.inst.cfg.enabled, true)
+  T.eq(c.inst.cfg.hud, false)
+  T.eq(c.inst.cfg.scope, "all")
+  T.near(c.inst.cfg.window_max, 1.3, 1e-9)
+  T.eq(c.inst.cfg.auto_mode, true)
+  T.eq(c.inst.auto.state, "ACTIVE")
+  H.shoot(c); H.settle(c)
+  T.eq(H.stats(c).attempted, 1, "and tracking still runs")
+end)
+
 T.test("menu signal connections are released on unload", function()
   local base = Signal.live_total
   local c = addon()

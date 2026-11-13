@@ -502,6 +502,10 @@ function M.new_juju(sim, game)
       function el:set_value(v) self:set_toggle(v) end
       function el:get_value() return self.value end
       J.elements[#J.elements + 1] = el
+      -- a host that announces each element's default through its change signal at creation time
+      if J.fire_on_create then
+        if kind == "slider" then el.on_slider_change:Fire(el.value) else el.on_toggle_change:Fire(el.value) end
+      end
       return el
     end
     rec("create_element", a, b, c)

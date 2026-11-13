@@ -256,6 +256,27 @@ This is the second feedback loop of the same family in this project (the first w
 feeding on other players' damage, found in simulation). The lesson both times: a control loop must
 not learn from measurements it cannot attribute.
 
+## 4j. The 16 "unmatched" confirmations: an accounting artefact, not lost hits
+
+The rapid-fire session reported `confirms=69 ... unmatched=16`, which read as sixteen Juju-confirmed
+hits being dropped. Reading the path a confirmation takes shows what that bucket really held: a
+*second* confirmation for a shot already credited - a pellet or multi-hit swing landing more than
+`burst_gap` (30 ms) after the first - finds its shot already resolved as a hit, matches none of the
+corroborate / pending / promote paths, and falls through to "unmatched".
+
+Those are duplicates, not losses. They are now counted apart:
+
+```
+confirms=N corroborated=N pellets=N dup=N unmatched=N
+  dup = a later confirmation for a shot already credited
+  unmatched = no shot of ours matched it   (also logged as a confirm_orphan event)
+```
+
+Only `unmatched` now means a genuinely missed hit, so the next session's numbers will show whether
+any exist at all. This was diagnosed by reading the code path rather than observed live - two 40 s
+instrumented windows caught no confirmations because no fight happened during them - so the split
+itself is still unverified in game.
+
 ## 5. Still unverified
 
 * Semantics of `on_local_bullet_fired` (never fired), whether `on_player_bullet_fired` includes your own

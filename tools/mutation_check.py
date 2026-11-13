@@ -33,7 +33,7 @@ M = [
     ("engine: later pellets not added to bucket damage", "engine.lua", "if s.state == \"resolved\" and s.outcome == \"hit\" then self:_apply(s, \"damage\", amount) end", ""),
     ("engine: expiry timer not cancelled on hit", "engine.lua", "    pcall(self.timers.cancel, shot.timer)\n    shot.timer = nil\n  end\n  shot.state = \"resolved\"", "    shot.timer = nil\n  end\n  shot.state = \"resolved\""),
     ("engine: reset keeps old state", "engine.lua", "  self:_cancel_all()\n  self:_init_state()\n  self.on_change()", "  self:_cancel_all()\n  self.on_change()"),
-    ("engine: not_fired never produced", "engine.lua", "elseif shot.ammo_tracked and not shot.fire then", "elseif false then"),
+    ("engine: not_fired never produced", "engine.lua", "      outcome, reason = \"not_fired\", \"no_ammo_change\"", "      outcome = \"miss\""),
     ("world: Humanoid.Died connection key not released", "world.lua", "key .. \"hdied\"", "key .. \"died\""),
     ("util: Bag.set does not replace existing key", "util.lua", "function Bag:set(key, signal, fn)\n  self:drop(key)", "function Bag:set(key, signal, fn)"),
     ("world: duplicate equip not filtered", "world.lua", "  if self.current and self.current.tool == inst then return end   -- duplicate ChildAdded\n", ""),
@@ -44,7 +44,10 @@ M = [
     ("world: sampler flag set before spawn succeeds", "world.lua", "    self.sampler_on = false\n    self.sampler_gen = self.sampler_gen + 1\n    error(\"sampler could not start", "    error(\"sampler could not start"),
     ("host: read-only flag guard removed", "host.lua", "if type(name) ~= \"string\" or string.sub(name, 1, #H.FLAG_PREFIX) ~= H.FLAG_PREFIX then", "if false then"),
     ("host: ping validation removed", "host.lua", "if not U.is_finite(v) or v <= 0 or v > 1e6 then", "if false then"),
-    ("ui: menu sync fires handlers", "ui.lua", "if self.dead or self.syncing then return end", "if self.dead then return end"),
+    # NOTE: no entry for the `self.syncing` guard inside UI:_on_control. Its change signal is
+    # connected only after the element exists, so a host announcing defaults at creation cannot
+    # reach it, and _clear_button only ever sends `false`, which the button branch ignores. The
+    # guard is unreachable today - an equivalent mutant - but kept as defence if either changes.
     ("ui: HUD rewrites unchanged lines", "ui.lua", "if h.text ~= lines[i] then", "if true then"),
     ("ui: flags rewritten every flush", "ui.lua", "if self.flag_cache[name] ~= v then", "if true then"),
     ("diag: spike detection off", "diag.lua", "spike = ms > math.max(base * cfg.spike_ratio, base + cfg.spike_min_ms)", "spike = false"),
@@ -70,9 +73,9 @@ M = [
     ("world: late local Humanoid not hooked", "world.lua", "    self:_maybe_local_humanoid(c)\n", ""),
     ("world: clock self-check removed", "world.lua", "        self:_check_clock(c0, waited)\n", ""),
     ("weapon: constant-style names accepted", "weapon.lua", "local NOT_LIVE = { \"max\", \"size\", \"capacity\", \"speed\", \"damage\", \"rate\", \"reserve\", \"total\", \"spare\",\n  \"stock\", \"limit\" }", "local NOT_LIVE = { \"max\" }"),
-    ("ui: callbacks during element creation act", "ui.lua", "  self.syncing = true      -- ignore any callback the host fires while elements are being created\n", ""),
+    ("ui: callbacks during element creation act", "ui.lua", "  self.syncing = true      -- ignore callbacks the host may fire while elements are created\n", ""),
     ("ui: Drawing object leaked on config failure", "ui.lua", "        pcall(function() obj:Remove() end)        -- never leave a half-configured object on screen\n", ""),
-    ("ui: momentary button ignores a click reporting false", "ui.lua", "    E.reset = self:_add(left, { name = \"Reset stats\", type = \"toggle\" }, function()\n", "    E.reset = self:_add(left, { name = \"Reset stats\", type = \"toggle\" }, function(v)\n      if v ~= true then return end\n"),
+    ("ui: momentary button ignores a click reporting false", "ui.lua", "    if v == true or v == 1 then", "    if v == 1 then"),
     ("main: stale jhc_loaded flag after unload", "main.lua", "    pcall(host.set_flag, \"jhc_loaded\", false)       -- other addons must not see a stale \"loaded\"\n", ""),
     ("main: handler error log not rate limited", "main.lua", "if n <= 3 or n % 100 == 0 then", "if true then"),
     ("config: late_grace upper bound loosened", "config.lua", "late_grace = { \"number\", 0, 2 },", "late_grace = { \"number\", 0, 5 },"),
@@ -92,7 +95,7 @@ M = [
     ("diag: trusted latencies ignored by the window", "diag.lua", "  if trusted then\n    emp = trusted * cfg.window_emp_mult", "  if false then\n    emp = trusted * cfg.window_emp_mult"),
     ("diag: untrusted latencies also trusted", "diag.lua", "  if trusted then self.tlat:push(sec) end", "  self.tlat:push(sec)"),
     ("diag: trusted term needs no minimum sample count", "diag.lua", "  if self.tlat:size() < self.cfg.window_emp_min then return nil end\n", ""),
-    ("engine: hit latency always marked trusted", "engine.lua", "self.diag, lat, shot.juju_confirmed == true)", "self.diag, lat, true)"),
+    ("engine: hit latency always marked trusted", "engine.lua", "pcall(self.diag.note_latency, self.diag, lat, clean)", "pcall(self.diag.note_latency, self.diag, lat, true)"),
     ("engine: corroboration does not teach the window", "engine.lua", "      if h.latency then pcall(self.diag.note_latency, self.diag, h.latency, true) end\n", ""),
     ("diag: reset keeps trusted latencies", "diag.lua", "self.lat:clear(); self.tlat:clear()", "self.lat:clear()"),
 

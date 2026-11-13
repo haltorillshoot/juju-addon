@@ -60,6 +60,7 @@ function E:_init_state()
     fire_unmatched = 0, invalid_events = 0, clock_anomaly = 0, timer_failures = 0,
     weapon_switches = 0, shots_spanning_switch = 0,
     juju_confirms = 0, corroborated = 0, confirm_pellets = 0, confirm_unmatched = 0, promoted = 0,
+    confirm_duplicate = 0,
     latency_clean = 0, latency_ambiguous = 0,
   }
   self.reasons = {}                 -- unconfirmed reason -> count
@@ -581,7 +582,21 @@ function E:register_confirm(info)
     end
   end
 
+  -- A further confirmation for a shot already credited: a second pellet or multi-hit swing landing
+  -- later than burst_gap. Not a new hit, and not an orphan either - counting these as "unmatched"
+  -- made it look as though confirmed hits were being dropped.
+  for i = self.recent_hit:size(), 1, -1 do
+    local h = self.recent_hit:get(i)
+    if h.juju_confirmed and h.victim == uid and t >= h.hit_t and (t - h.hit_t) <= cfg.confirm_horizon then
+      self.counters.confirm_duplicate = self.counters.confirm_duplicate + 1
+      return "duplicate"
+    end
+  end
+
+  -- genuinely nothing to attach it to: Juju says a bullet of ours hit, but we never saw the shot
   self.counters.confirm_unmatched = self.counters.confirm_unmatched + 1
+  self:_event(t, "confirm_orphan", string.format("uid=%s confirmed, but no shot of ours matches it",
+    tostring(uid)))
   return "unmatched"
 end
 
