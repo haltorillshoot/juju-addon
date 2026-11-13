@@ -161,6 +161,29 @@ menu under either API. Toggles bind `jhc_cfg_<key>` flags and sliders `jhc_ui_<k
 the flag interface and the config file all share one source of truth; a 1 Hz poll backs up the
 change signals in case a host does not provide them.
 
+## 4f. Why the addon never appeared in Juju's list: the file extension
+
+The addon was installed as `JHC HitChecker.LUAU.txt` and never showed up. Juju's loader constants,
+recovered from the live client with `getgc(true)`, are:
+
+```
+"juju recode/addons/" , listfiles , string , match , "%.(.*)" , "luau" , isfile , ".luau"
+```
+
+So the loader lists the folder and takes the extension with `string.match(name, "%.(.*)")`, which
+captures everything after the **first** dot, and compares it to `luau`:
+
+| file | captured extension | accepted |
+|---|---|---|
+| `JHC Hit Checker.luau` | `luau` | yes |
+| `JHC HitChecker.LUAU.txt` | `LUAU.txt` | no |
+| `JHCHitChecker.lua` | `lua` | no |
+| `addon.LUAU.txt` (shipped placeholder) | `LUAU.txt` | no |
+
+Even the placeholder file that came with the folder is not loadable, which is a good reminder that
+"there is a file in the addons folder" says nothing about whether Juju can see it. Installed as
+`JHC Hit Checker.luau`, it compiles as Luau and satisfies the loader's own rule.
+
 ## 5. Still unverified
 
 * Semantics of `on_local_bullet_fired` (never fired), whether `on_player_bullet_fired` includes your own

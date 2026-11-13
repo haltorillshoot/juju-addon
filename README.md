@@ -13,10 +13,16 @@ profile. Single file: `dist/jhc_hood_customs.lua`.
 
 ## Install / run
 
-**As a Juju addon (this is what puts it in the menu):** copy `dist/jhc_hood_customs.lua` into your
-Juju addons folder as a `.LUAU.txt` file - e.g. `juju recode/addons/JHC HitChecker.LUAU.txt` - then
-load it from Juju's own Addons list. Loading it from an executor console instead works for tracking
-and the HUD, but Juju only hands out the menu API to real addons, so no menu is built.
+**As a Juju addon (this is what puts it in the menu):** copy `dist/JHC Hit Checker.luau` into
+`juju recode/addons/`, then in Juju open **Addons -> refresh addon list -> pick it -> load addon**.
+
+> **The file name matters.** Juju's loader lists the folder and takes the extension with
+> `string.match(name, "%.(.*)")` - everything after the **first** dot - and only accepts exactly
+> `luau`. So `MyAddon.luau` works, while `MyAddon.LUAU.txt` or `MyAddon.lua` are ignored silently
+> (that is why a file saved as `.LUAU.txt` never shows up in the list).
+
+Loading it from an executor console instead works for tracking, the HUD and the console report, but
+Juju only hands the menu API to scripts its own loader runs, so no menu is built that way.
 
 Quickest: run `loader.lua` from Juju (it downloads `dist/jhc_hood_customs.lua` from this repo and runs
 it; pin `REF` to a commit SHA for safety). Or load `dist/jhc_hood_customs.lua` yourself:
