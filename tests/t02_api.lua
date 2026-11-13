@@ -106,14 +106,35 @@ T.test("every connection goes through juju.create_connection and is released on 
   T.eq(Signal.live_total, base, "leaked connections: " .. tostring(Signal.live_total - base))
 end)
 
-T.test("uses the documented method form section:create_element(info, {callback=})", function()
+T.test("on a documented-style host it ends up using section:create_element(info, {callback=})", function()
   local c = H.standard()
+  T.eq(c.inst.ui.menu_style, "documented")
+  local method_calls = 0
   for _, call in ipairs(c.J.calls) do
-    if call.name == "create_element" then
+    -- the first call is the addon-style probe (info table + element-type table); the host rejects
+    -- it and the addon falls back. Every element that is actually created goes through the
+    -- documented method form, whose recorded args are (info, { callback = fn }).
+    if call.name == "create_element" and type(call.args[2]) == "table" and call.args[2].callback then
+      method_calls = method_calls + 1
       T.eq(type(call.args[1]), "table")
       T.eq(type(call.args[2].callback), "function")
     end
   end
+  T.eq(method_calls, 11, "all eleven controls created through the documented form")
+end)
+
+T.test("on an addon-style host it uses create_element(info, {type={flag=..}}) and no tab/section", function()
+  local c = H.standard({ pre = function(x) x.J.element_api = "addon" end })
+  T.ok(c.inst, tostring(c.err))
+  T.eq(c.inst.ui.menu_style, "addon")
+  T.eq(#c.J.elements, 11)
+  for _, e in ipairs(c.J.elements) do
+    T.ok(e.kind == "toggle" or e.kind == "slider", "element kind " .. tostring(e.kind))
+    T.eq(type(e.conf.flag), "string")
+    T.eq(string.sub(e.conf.flag, 1, 4), "jhc_", "controls must bind flags in our own namespace")
+  end
+  T.eq(#c.J.strict_errors, 0, table.concat(c.J.strict_errors, "; "))
+  T.eq(#c.J.violations, 0)
 end)
 
 T.test("capability probe reflects what the host provides", function()

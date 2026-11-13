@@ -13,6 +13,11 @@ profile. Single file: `dist/jhc_hood_customs.lua`.
 
 ## Install / run
 
+**As a Juju addon (this is what puts it in the menu):** copy `dist/jhc_hood_customs.lua` into your
+Juju addons folder as a `.LUAU.txt` file - e.g. `juju recode/addons/JHC HitChecker.LUAU.txt` - then
+load it from Juju's own Addons list. Loading it from an executor console instead works for tracking
+and the HUD, but Juju only hands out the menu API to real addons, so no menu is built.
+
 Quickest: run `loader.lua` from Juju (it downloads `dist/jhc_hood_customs.lua` from this repo and runs
 it; pin `REF` to a commit SHA for safety). Or load `dist/jhc_hood_customs.lua` yourself:
 

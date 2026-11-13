@@ -655,15 +655,22 @@ function H.detect(env)
     return nil
   end
 
+  -- Wrap an already-obtained Juju custom signal so host.connect attaches to it directly
+  -- (create_connection is documented for RBXScriptSignals).
+  function host.wrap_signal(sig)
+    if sig == nil then return nil end
+    local okc, c = pcall(function() return sig.Connect end)
+    if not okc or c == nil then return nil end
+    return { __direct = true, Connect = function(_, fn) return sig:Connect(fn) end }
+  end
+
   -- Juju custom signal by name (documented get_signal), or nil. Wrapped so host.connect connects it
   -- directly (create_connection is documented for RBXScriptSignals).
   function host.juju_signal(name)
     if not host.caps.get_signal then return nil end
     local ok, sig = pcall(juju_t.get_signal, name)
     if not ok or sig == nil then return nil end
-    local okc, c = pcall(function() return sig.Connect end)
-    if not okc or c == nil then return nil end
-    return { __direct = true, Connect = function(_, fn) return sig:Connect(fn) end }
+    return host.wrap_signal(sig)
   end
 
   function host.get_flag(name)
@@ -2329,7 +2336,10 @@ function UI.new(ctx)
   self.actions = ctx.actions
   self.log = ctx.log or function() end
   self.elements = {}
+  self.bound = {}
+  self.bag_set = ctx.bag_set      -- keyed connect, so menu signals are released on unload
   self.menu_ok = false
+  self.menu_style = "none"
   self.hud = nil
   self.hud_failed = false
   self.dirty = false
@@ -2450,6 +2460,11 @@ function UI:report()
   end
   add("targets observed=%d  host_auto=%s  host_flag=%s", self.world and self.world:target_count() or 0,
     tostring(self.auto.ctx.host_auto), tostring(self.world and self.world.host_flag_name or "none"))
+  add("menu: %s (%d controls)", self.menu_style, (function()
+    local n = 0
+    for _ in pairs(self.elements) do n = n + 1 end
+    return n
+  end)())
   add("juju bullet signal (on_player_bullet_fired, shot source for guns): %s  bullets=%d",
     (self.world and self.world.bullet_hooked) and "hooked" or "not available/disabled",
     self.world and self.world.counts.bullets_seen or 0)
@@ -2504,102 +2519,248 @@ function UI:_release(el)
   self.syncing = prev
 end
 
-function UI:build_menu()
+-- ---------------------------------------------------------------------------------------
+-- Menu
+--
+-- LIVE FINDING: this Juju build has TWO different element APIs.
+--   * addon style (what real addons use):
+--         juju.create_element({ name = .., section = .. }, { toggle = { default = .., flag = .. } })
+--     The element TYPE is the key of the second table, there is no create_tab/create_section, and
+--     the state lives in the bound flag. Elements expose on_toggle_change / set_toggle.
+--   * documented style (juju-docs): create_tab -> create_section -> section:create_element(info,
+--     { callback = .. }). Called from outside an addon context those return nil and build nothing.
+-- The addon style is tried first, the documented one is the fallback, so the menu appears whichever
+-- API the host actually provides.
+-- ---------------------------------------------------------------------------------------
+
+function UI:_apply(key, v)
+  local cfgobj, cfg = self.cfgobj, self.cfg
+  if key == "enabled" then
+    cfgobj:set("enabled", v)
+    if self.actions.apply_enabled then self.actions.apply_enabled() end
+    self:mark_dirty()
+  elseif key == "hud" then
+    cfgobj:set("hud", v); self:apply_hud(); self:mark_dirty()
+  elseif key == "debug" then
+    cfgobj:set("debug", v)
+  elseif key == "tab_summary" then
+    cfgobj:set("tab_summary", v); self.tab_text_cache = nil; self:mark_dirty()
+  elseif key == "auto_mode" then
+    cfgobj:set("auto_mode", v); self.auto:set_enabled(cfg.auto_mode); self:mark_dirty()
+  elseif key == "follow_host_auto" then
+    cfgobj:set("follow_host_auto", v); self.auto:update({}); self:mark_dirty()
+  elseif key == "window_max" then
+    if type(v) == "number" then cfgobj:set("window_max", v / 1000) end
+  elseif key == "window_min" then
+    if type(v) == "number" then cfgobj:set("window_min", v / 1000) end
+  elseif key == "scope" then
+    if type(v) == "number" then
+      local i = math.floor(v + 0.5)
+      if i < 1 then i = 1 elseif i > 3 then i = 3 end
+      cfgobj:set("scope", SCOPE_BY_NUM[i])
+    end
+  elseif key == "reset" then
+    self.actions.reset()
+  elseif key == "report" then
+    self.actions.dump()
+  end
+end
+
+function UI:_specs()
+  local cfg = self.cfg
+  return {
+    { key = "enabled", name = "Enabled", sec = "Hit Checker", kind = "toggle", default = cfg.enabled },
+    { key = "hud", name = "Show HUD", sec = "Hit Checker", kind = "toggle", default = cfg.hud },
+    { key = "debug", name = "Debug log", sec = "Hit Checker", kind = "toggle", default = cfg.debug },
+    { key = "tab_summary", name = "Live tab summary", sec = "Hit Checker", kind = "toggle", default = cfg.tab_summary },
+    { key = "reset", name = "Reset stats", sec = "Hit Checker", kind = "button" },
+    { key = "report", name = "Print report", sec = "Hit Checker", kind = "button" },
+    { key = "window_max", name = "Max window ms", sec = "Hit Checker", kind = "slider",
+      min = 250, max = 3000, default = math.floor(cfg.window_max * 1000 + 0.5), suffix = "ms" },
+    { key = "window_min", name = "Min window ms", sec = "Hit Checker", kind = "slider",
+      min = 100, max = 1000, default = math.floor(cfg.window_min * 1000 + 0.5), suffix = "ms" },
+    { key = "auto_mode", name = "Auto Mode DBS", sec = "Auto Mode", kind = "toggle", default = cfg.auto_mode },
+    { key = "follow_host_auto", name = "Follow Juju auto", sec = "Auto Mode", kind = "toggle", default = cfg.follow_host_auto },
+    { key = "scope", name = "Scope 1auto 2tgt 3all", sec = "Auto Mode", kind = "slider",
+      min = 1, max = 3, default = NUM_BY_SCOPE[cfg.scope] or 1 },
+  }
+end
+
+local function flag_for(spec)
+  if spec.kind == "toggle" then return "jhc_cfg_" .. spec.key end   -- shares the config namespace
+  return "jhc_ui_" .. spec.key
+end
+
+-- Addon style. Returns created_count, failure_reason_if_zero.
+function UI:_build_addon_menu()
+  local juju = self.host.juju
+  local created = 0
+  self.bound = {}
+  local specs = self:_specs()
+  for i = 1, #specs do
+    local spec = specs[i]
+    local info = { name = spec.name, section = spec.sec }
+    local body
+    if spec.kind == "slider" then
+      body = { slider = { flag = flag_for(spec), min = spec.min, max = spec.max,
+                          default = spec.default, suffix = spec.suffix } }
+    else
+      local def = false
+      if spec.kind == "toggle" then def = spec.default and true or false end
+      body = { toggle = { flag = flag_for(spec), default = def } }
+    end
+    local ok, el = pcall(juju.create_element, info, body)
+    if not ok then
+      if created == 0 then return 0, tostring(el) end   -- wrong API for this host: fall back
+      self.log("error", "create_element '" .. spec.name .. "': " .. tostring(el))
+    elseif el ~= nil then
+      created = created + 1
+      self.elements[spec.key] = el
+      local rec = { flag = flag_for(spec), spec = spec, last = nil }
+      self.bound[#self.bound + 1] = rec
+      local sig = nil
+      pcall(function() sig = el.on_toggle_change or el.on_slider_change end)
+      if sig ~= nil and self.bag_set then
+        local wrapped = self.host.wrap_signal(sig)
+        if wrapped then
+          self.bag_set("ui:" .. spec.key, wrapped, function(v) self:_on_control(rec, v) end)
+        end
+      end
+    end
+  end
+  return created
+end
+
+function UI:_on_control(rec, v)
+  if self.dead or self.syncing then return end
+  local spec = rec.spec
+  rec.last = v
+  if spec.kind == "button" then
+    if v == true or v == 1 then
+      self:_apply(spec.key, true)
+      self:_clear_button(rec)
+    end
+    return
+  end
+  self:_apply(spec.key, v)
+end
+
+function UI:_clear_button(rec)
+  local prev = self.syncing
+  self.syncing = true
+  rec.last = false
+  local el = self.elements[rec.spec.key]
+  if el ~= nil then
+    pcall(function() el:set_toggle(false) end)
+    pcall(function() el:set_value(false) end)
+  end
+  self.host.set_flag(rec.flag, false)
+  self.syncing = prev
+end
+
+-- Backup for hosts without change signals, and for sliders: read the bound flags.
+function UI:_poll_flags()
+  if self.dead or not self.bound then return end
+  for i = 1, #self.bound do
+    local rec = self.bound[i]
+    local v = self.host.get_flag(rec.flag)
+    if v ~= nil and v ~= rec.last then self:_on_control(rec, v) end
+  end
+end
+
+-- Documented style.
+function UI:_build_doc_menu()
   local host, juju = self.host, self.host.juju
   local caps = host.caps
-  if not (caps.create_tab and caps.create_section) then
-    self.log("warn", "Juju menu API missing: running without menu")
-    return false
-  end
-  local cfgobj, cfg = self.cfgobj, self.cfg
-  self.syncing = true      -- ignore any callback the host fires while elements are being created
+  if not (caps.create_tab and caps.create_section) then return 0 end
+  local created = 0
   local ok, err = pcall(function()
     juju.create_tab()
     if caps.set_tab_text then juju.set_tab_text("HitCheck") end
-    local left = juju.create_section("Hit Checker", 1, 1, 0)
-    local right = juju.create_section("Auto Mode", 2, 1, 0)
-    -- LIVE FINDING: outside a Juju addon context create_section returned nil. Fail ONCE, clearly.
-    if left == nil or right == nil then
-      error("juju.create_section returned nil (is this script loaded as a Juju addon?)", 0)
+    local secs = {
+      ["Hit Checker"] = juju.create_section("Hit Checker", 1, 1, 0),
+      ["Auto Mode"] = juju.create_section("Auto Mode", 2, 1, 0),
+    }
+    if secs["Hit Checker"] == nil or secs["Auto Mode"] == nil then
+      error("juju.create_section returned nil", 0)
     end
-    local E = self.elements
-
-    E.enabled = self:_add(left, { name = "Enabled", type = "toggle" }, function(v)
-      cfgobj:set("enabled", v)
-      if self.actions.apply_enabled then self.actions.apply_enabled() end
-      self:mark_dirty()
-    end)
-    E.hud = self:_add(left, { name = "Show HUD", type = "toggle" }, function(v)
-      cfgobj:set("hud", v)
-      self:apply_hud()
-      self:mark_dirty()
-    end)
-    E.debug = self:_add(left, { name = "Debug log", type = "toggle" }, function(v)
-      cfgobj:set("debug", v)
-    end)
-    E.tab = self:_add(left, { name = "Live tab summary", type = "toggle" }, function(v)
-      cfgobj:set("tab_summary", v)
-      self.tab_text_cache = nil
-      self:mark_dirty()
-    end)
-    -- momentary buttons built from toggles: ANY callback is a click (works even if the host
-    -- gives elements no set_value), and our own release below is silenced by self.syncing
-    E.reset = self:_add(left, { name = "Reset stats", type = "toggle" }, function()
-      self.actions.reset()
-      self:_release(E.reset)
-    end)
-    E.dump = self:_add(left, { name = "Print report", type = "toggle" }, function()
-      self.actions.dump()
-      self:_release(E.dump)
-    end)
-    E.wmax = self:_add(left, { name = "Max window ms", type = "slider", min = 250, max = 3000 }, function(v)
-      if type(v) == "number" then cfgobj:set("window_max", v / 1000) end
-    end)
-    E.wmin = self:_add(left, { name = "Min window ms", type = "slider", min = 100, max = 1000 }, function(v)
-      if type(v) == "number" then cfgobj:set("window_min", v / 1000) end
-    end)
-
-    E.auto = self:_add(right, { name = "Auto Mode DBS", type = "toggle" }, function(v)
-      cfgobj:set("auto_mode", v)
-      self.auto:set_enabled(cfg.auto_mode)
-      self:mark_dirty()
-    end)
-    E.follow = self:_add(right, { name = "Follow Juju auto", type = "toggle" }, function(v)
-      cfgobj:set("follow_host_auto", v)
-      self.auto:update({})
-      self:mark_dirty()
-    end)
-    E.scope = self:_add(right, { name = "Scope 1auto 2tgt 3all", type = "slider", min = 1, max = 3 }, function(v)
-      if type(v) ~= "number" then return end
-      local idx = math.floor(v + 0.5)
-      if idx < 1 then idx = 1 elseif idx > 3 then idx = 3 end
-      cfgobj:set("scope", SCOPE_BY_NUM[idx])
-    end)
-
-    -- reflect current config in the controls without triggering the handlers
-    set_value(E.enabled, cfg.enabled)
-    set_value(E.hud, cfg.hud)
-    set_value(E.debug, cfg.debug)
-    set_value(E.tab, cfg.tab_summary)
-    set_value(E.wmax, math.floor(cfg.window_max * 1000 + 0.5))
-    set_value(E.wmin, math.floor(cfg.window_min * 1000 + 0.5))
-    set_value(E.auto, cfg.auto_mode)
-    set_value(E.follow, cfg.follow_host_auto)
-    set_value(E.scope, NUM_BY_SCOPE[cfg.scope] or 1)
+    local specs = self:_specs()
+    for i = 1, #specs do
+      local spec = specs[i]
+      local info
+      if spec.kind == "slider" then
+        info = { name = spec.name, type = "slider", min = spec.min, max = spec.max }
+      else
+        info = { name = spec.name, type = "toggle" }
+      end
+      local el = self:_add(secs[spec.sec], info, function(v)
+        if spec.kind == "button" then
+          self:_apply(spec.key, true)
+          self:_release(self.elements[spec.key])
+        else
+          self:_apply(spec.key, v)
+        end
+      end)
+      if el ~= nil then
+        created = created + 1
+        self.elements[spec.key] = el
+      end
+    end
+    self.syncing = true
+    for i = 1, #specs do
+      local spec = specs[i]
+      if spec.kind ~= "button" then set_value(self.elements[spec.key], spec.default) end
+    end
     self.syncing = false
   end)
   self.syncing = false
   if not ok then
     self.log("error", "building menu failed: " .. tostring(err))
-    return false
   end
-  local created = 0
-  for _, el in pairs(self.elements) do
-    if el ~= nil then created = created + 1 end
+  return created
+end
+
+-- Flag-bound menus need a heartbeat of their own: the throttled refresh stops while tracking is
+-- disabled, and without it a host that offers no change signals could never re-enable the addon.
+function UI:start_menu_poll()
+  if self.menu_style ~= "addon" or self.poll_on or self.dead then return end
+  self.poll_on = true
+  local period = self.cfg.ui_refresh * 4
+  if period < 1 then period = 1 end
+  local function tick()
+    if self.dead or not self.poll_on then return end
+    local ok, err = pcall(function() self:_poll_flags() end)
+    if not ok then self.log("error", "menu poll: " .. tostring(err)) end
+    local ok2, h = pcall(self.host.task.delay, period, tick)
+    if ok2 then self.poll_handle = h else self.poll_on = false end
   end
+  local ok, h = pcall(self.host.task.delay, period, tick)
+  if ok then self.poll_handle = h else self.poll_on = false end
+end
+
+function UI:build_menu()
+  self.syncing = true      -- ignore callbacks the host may fire while elements are created
+  local created, why = self:_build_addon_menu()
+  if created > 0 then
+    self.menu_style = "addon"
+  else
+    if why then
+      self.log("info", "addon-style create_element not accepted (" .. string.sub(tostring(why), 1, 80)
+        .. "); trying the documented tab/section API")
+    end
+    self.elements = {}
+    self.bound = {}
+    created = self:_build_doc_menu()
+    self.menu_style = (created > 0) and "documented" or "none"
+  end
+  self.syncing = false
   self.menu_ok = created > 0
   if not self.menu_ok then
-    self.log("warn", "menu has no controls (tracking, HUD and the console report still work)")
+    self.log("warn", "no menu controls could be created (is this loaded as a Juju addon? "
+      .. "tracking, HUD and the console report still work)")
+  else
+    self.log("info", string.format("menu built: %d controls via the %s API", created, self.menu_style))
+    self:start_menu_poll()
   end
   return self.menu_ok
 end
@@ -2702,6 +2863,7 @@ function UI:flush()
   self.last_render = self.host.clock()
   self.renders = self.renders + 1
   local ok, err = pcall(function()
+    self:_poll_flags()        -- menu controls bound to flags (addon-style hosts)
     self:render_hud()
     self:export_flags()
     self:update_tab_text()
@@ -2731,6 +2893,11 @@ end
 
 function UI:destroy()
   self.dead = true
+  self.poll_on = false
+  if self.poll_handle ~= nil and self.host.caps.task_cancel then
+    pcall(self.host.task.cancel, self.poll_handle)
+  end
+  self.poll_handle = nil
   if self.flush_handle ~= nil and self.host.caps.task_cancel then
     pcall(self.host.task.cancel, self.flush_handle)
   end
@@ -2851,7 +3018,8 @@ function M.start(user_cfg, env)
     end
 
     ui = UI.new({ host = host, cfgobj = cfgobj, engine = engine, diag = diag, auto = auto, world = world,
-                  actions = actions, log = log })
+                  actions = actions, log = log,
+                  bag_set = function(key, sig, fn) return bag:set(key, sig, fn) end })
 
     -- 4. menu (non-fatal), world, sampler
     ui:build_menu()

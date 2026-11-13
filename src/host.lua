@@ -149,15 +149,22 @@ function H.detect(env)
     return nil
   end
 
+  -- Wrap an already-obtained Juju custom signal so host.connect attaches to it directly
+  -- (create_connection is documented for RBXScriptSignals).
+  function host.wrap_signal(sig)
+    if sig == nil then return nil end
+    local okc, c = pcall(function() return sig.Connect end)
+    if not okc or c == nil then return nil end
+    return { __direct = true, Connect = function(_, fn) return sig:Connect(fn) end }
+  end
+
   -- Juju custom signal by name (documented get_signal), or nil. Wrapped so host.connect connects it
   -- directly (create_connection is documented for RBXScriptSignals).
   function host.juju_signal(name)
     if not host.caps.get_signal then return nil end
     local ok, sig = pcall(juju_t.get_signal, name)
     if not ok or sig == nil then return nil end
-    local okc, c = pcall(function() return sig.Connect end)
-    if not okc or c == nil then return nil end
-    return { __direct = true, Connect = function(_, fn) return sig:Connect(fn) end }
+    return host.wrap_signal(sig)
   end
 
   function host.get_flag(name)

@@ -421,6 +421,7 @@ function M.new_juju(sim, game)
 
   function api.create_tab(func)
     rec("create_tab", func); maybe_throw("create_tab")
+    if J.element_api == "addon" then return nil end   -- real build: returns nil, builds nothing
     strict(func == nil or type(func) == "function", "create_tab(func?: function)")
     J.tabs = J.tabs + 1
     J.current_tab = J.tabs
@@ -429,6 +430,7 @@ function M.new_juju(sim, game)
 
   function api.create_section(name, side, size, offset)
     rec("create_section", name, side, size, offset); maybe_throw("create_section")
+    if J.element_api == "addon" then return nil end   -- real build: returns nil, builds nothing
     strict(J.current_tab, "create_section before create_tab")
     strict(type(name) == "string", "create_section name must be string")
     strict(side == 1 or side == 2, "create_section side must be 1 or 2")
@@ -464,14 +466,53 @@ function M.new_juju(sim, game)
     return section
   end
 
-  -- documented top-level form: juju.create_element(section: string, info, elements)
-  function api.create_element(section_name, info, elements)
-    rec("create_element_top", section_name, info, elements)
-    strict(type(section_name) == "string", "create_element(section: string, ...)")
-    for i = 1, #J.sections do
-      if J.sections[i].name == section_name then return J.sections[i]:create_element(info, elements) end
+  -- Two element APIs exist in the wild (see docs/LIVE_FINDINGS.md):
+  --   J.element_api == "documented" : create_element(section: string, info, elements)
+  --   J.element_api == "addon"      : create_element(info_table, { <type> = { flag=.., ... } })
+  -- The default mirrors the published docs; tests switch it to "addon" to reproduce the real build.
+  function api.create_element(a, b, c)
+    if J.element_api == "addon" then
+      rec("create_element", a, b)
+      if type(a) ~= "table" then
+        error("juju: create_element expected an info table", 2)
+      end
+      strict(type(a.name) == "string", "addon create_element: info.name must be a string")
+      strict(type(b) == "table", "addon create_element: arg #2 must be a table")
+      local kind, conf
+      for k, v in pairs(b) do kind, conf = k, v end
+      strict(kind == "toggle" or kind == "slider", "undocumented element type: " .. tostring(kind))
+      strict(type(conf) == "table", "addon create_element: element config must be a table")
+      strict(type(conf.flag) == "string" and conf.flag ~= "", "addon elements must bind a flag")
+      strict(not RESERVED[conf.flag], "addon element bound a reserved flag")
+      if kind == "slider" then
+        strict(type(conf.min) == "number" and type(conf.max) == "number" and conf.min < conf.max,
+          "slider needs numeric min < max")
+      end
+      local el = { info = a, section = a.section, kind = kind, conf = conf, sets = 0,
+                   value = (conf.default ~= nil) and conf.default or (kind == "slider" and conf.min or false) }
+      J.flags[conf.flag] = el.value
+      el.on_toggle_change = Signal.new("on_toggle_change")
+      el.on_slider_change = Signal.new("on_slider_change")
+      function el:set_toggle(v)
+        self.value = v
+        self.sets = self.sets + 1
+        J.flags[conf.flag] = v
+        if not J.no_change_signal then self.on_toggle_change:Fire(v) end
+      end
+      function el:set_value(v) self:set_toggle(v) end
+      function el:get_value() return self.value end
+      J.elements[#J.elements + 1] = el
+      return el
     end
-    error("juju(strict): no section named " .. section_name)
+    rec("create_element", a, b, c)
+    if type(a) ~= "string" then
+      -- exactly what the real build answers to an addon-style call; the addon must handle it
+      error("juju: create_element arg #1 expected string got " .. type(a), 2)
+    end
+    for i = 1, #J.sections do
+      if J.sections[i].name == a then return J.sections[i]:create_element(b, c) end
+    end
+    error("juju(strict): no section named " .. a)
   end
 
   function api.find_element(parent, name)
@@ -588,11 +629,18 @@ function M.new_juju(sim, game)
       local e = J.elements[i]
       if e.section == section and e.info.name == name then
         e.value = value
-        e.callback(value)
+        if e.callback then
+          e.callback(value)                       -- documented style
+        else
+          J.flags[e.conf.flag] = value            -- addon style: the host writes the bound flag
+          if not J.no_change_signal then
+            if e.kind == "slider" then e.on_slider_change:Fire(value) else e.on_toggle_change:Fire(value) end
+          end
+        end
         return true
       end
     end
-    error("no such element " .. section .. "/" .. name)
+    error("no such element " .. tostring(section) .. "/" .. tostring(name))
   end
 
   function J.element(section, name)

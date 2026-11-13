@@ -127,6 +127,40 @@ events: #115 knife via=activated ... | gun shots via=bullet
 Note the ~16% hit rate is simply how the session went (long-range shooting, knife swings at air); it is
 a measurement, not a target.
 
+## 4e. Why the menu never appeared: there are TWO element APIs
+
+Comparing against a working addon (the user's TargetHud) showed the menu problem was never about
+loading context alone - the element API itself is different from the published docs:
+
+| | documented (juju-docs) | what a real addon uses |
+|---|---|---|
+| tab / section | `create_tab()`, `create_section(name, side, size, offset)` | none; `section` is a string field |
+| element | `section:create_element({name, type="toggle"}, {callback=fn})` | `create_element({name=.., section=..}, {toggle={flag=.., default=..}})` |
+| element type | `type` field | the **key** of the second table |
+| state | callback argument | the bound **flag** |
+| change events | `callback` | `element.on_toggle_change`, `element:set_toggle(v)` |
+
+Probing the live build from the executor console:
+
+```
+create_tab()                        -> nil
+create_section('JHC probe',1,1,0)   -> nil
+create_element({name},{toggle={}})  -> error: juju: create_element arg #1 expected string got table
+create_element('s',{name},{toggle}) -> nil        (accepted, builds nothing)
+```
+
+So from the console the documented signature is accepted but builds nothing, and the addon
+signature is rejected outright - which means addons get a *different* `juju.create_element` than the
+console does. Consistent with `__IDENTIFIER` being nil in every console run: Juju injects it into
+addons, together with the addon-scoped API.
+
+Addons live in `juju recode/addons/` as `*.LUAU.txt` (the folder held one empty `addon.LUAU.txt`).
+
+The addon now tries the addon-style call first and falls back to the documented one, so it builds a
+menu under either API. Toggles bind `jhc_cfg_<key>` flags and sliders `jhc_ui_<key>`, so the menu,
+the flag interface and the config file all share one source of truth; a 1 Hz poll backs up the
+change signals in case a host does not provide them.
+
 ## 5. Still unverified
 
 * Semantics of `on_local_bullet_fired` (never fired), whether `on_player_bullet_fired` includes your own

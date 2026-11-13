@@ -101,7 +101,8 @@ function M.start(user_cfg, env)
     end
 
     ui = UI.new({ host = host, cfgobj = cfgobj, engine = engine, diag = diag, auto = auto, world = world,
-                  actions = actions, log = log })
+                  actions = actions, log = log,
+                  bag_set = function(key, sig, fn) return bag:set(key, sig, fn) end })
 
     -- 4. menu (non-fatal), world, sampler
     ui:build_menu()
