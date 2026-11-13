@@ -98,9 +98,11 @@ end)
 
 T.test("loading twice replaces the old instance without leaking connections", function()
   local c = H.standard()
+  H.run(c, 1)                          -- let the one-time create_connection probe finish and clean up
   local after_first = Signal.live_total
   local first = c.inst
   local second = require("main").start(nil, c.env)
+  H.run(c, 1)
   T.ok(second)
   T.ok(first.dead, "old instance must be shut down")
   T.neq(first, second)

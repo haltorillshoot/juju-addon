@@ -21,7 +21,7 @@ if JHC_BUNDLE then print("*** integration tests run against bundle: " .. JHC_BUN
 
 local files = { "t01_init", "t02_api", "t03_hit", "t04_miss", "t05_stats", "t06_weapon", "t07_dbs",
   "t08_auto", "t09_diag", "t10_events", "t11_respawn", "t12_switch", "t13_config", "t14_ui",
-  "t15_recovery", "t16_perf", "t17_latency", "t18_regress", "t19_loader" }
+  "t15_recovery", "t16_perf", "t17_latency", "t18_regress", "t19_loader", "t20_live" }
 
 local t0 = os.clock()
 for _, name in ipairs(files) do

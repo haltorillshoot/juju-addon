@@ -55,12 +55,14 @@ T.test("CFrame functions throwing / returning nil: gap is simply unknown", funct
   T.is_nil(c.inst.host.gap())
 end)
 
-T.test("juju.create_connection throwing: init survives, errors are counted, nothing crashes", function()
+T.test("juju.create_connection throwing: the addon falls back to direct connections and keeps tracking", function()
   local c = H.standard({ pre = function(x) x.J.throw.create_connection = true end })
   T.ok(c.inst, tostring(c.err))
-  T.ok(c.inst.errors > 0)
-  H.shoot(c); H.run(c, 3)
-  T.eq(H.stats(c).attempted, 0)       -- nothing could be connected, so nothing is tracked
+  T.ok(c.inst.host.connect_fallbacks > 0)
+  T.eq(c.inst.errors, 0, "falling back is not an error")
+  H.shoot_hit(c, c.enemies[1], 0.07, 10); H.settle(c)
+  T.eq(H.stats(c).hits, 1)
+  T.eq(c.tool.Activated.live, 1, "exactly one listener")
   T.eq(#c.sim.errors, 0)
 end)
 

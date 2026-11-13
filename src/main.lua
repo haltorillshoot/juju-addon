@@ -106,6 +106,17 @@ function M.start(user_cfg, env)
     -- 4. menu (non-fatal), world, sampler
     ui:build_menu()
     world:start()
+    host.probe_connect(function(mode)
+      if mode == "noop_returns_nil" then
+        log("warn", "juju.create_connection did nothing here (not loaded as a Juju addon?): using direct "
+          .. "connections; they are released by this addon's own unload hook")
+      elseif mode == "connects_returns_nil" then
+        log("warn", "juju.create_connection connects but returns no connection object: listeners may be "
+          .. "registered twice (host.dup_risk)")
+      elseif mode ~= "returns_connection" then
+        log("warn", "juju.create_connection behaves unexpectedly: " .. tostring(mode))
+      end
+    end)
     if cfg.enabled then
       diag:sample("init")
       world:start_sampler()

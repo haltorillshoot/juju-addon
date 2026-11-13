@@ -147,6 +147,9 @@ function UI:report()
   end
   add("targets observed=%d  host_auto=%s  host_flag=%s", self.world and self.world:target_count() or 0,
     tostring(self.auto.ctx.host_auto), tostring(self.world and self.world.host_flag_name or "none"))
+  add("connections: create_connection behaviour=%s direct-connect fallbacks=%d%s",
+    tostring(self.host.connect_behaviour or "not probed yet"), self.host.connect_fallbacks or 0,
+    self.host.dup_risk and "  !! duplicate-listener risk" or "")
   add("-- capabilities --")
   for _, line in ipairs(self.host.caps_lines()) do R[#R + 1] = line end
   if #self.cfgobj.problems > 0 then
@@ -206,6 +209,10 @@ function UI:build_menu()
     if caps.set_tab_text then juju.set_tab_text("HitCheck") end
     local left = juju.create_section("Hit Checker", 1, 1, 0)
     local right = juju.create_section("Auto Mode", 2, 1, 0)
+    -- LIVE FINDING: outside a Juju addon context create_section returned nil. Fail ONCE, clearly.
+    if left == nil or right == nil then
+      error("juju.create_section returned nil (is this script loaded as a Juju addon?)", 0)
+    end
     local E = self.elements
 
     E.enabled = self:_add(left, { name = "Enabled", type = "toggle" }, function(v)
@@ -277,8 +284,15 @@ function UI:build_menu()
     self.log("error", "building menu failed: " .. tostring(err))
     return false
   end
-  self.menu_ok = true
-  return true
+  local created = 0
+  for _, el in pairs(self.elements) do
+    if el ~= nil then created = created + 1 end
+  end
+  self.menu_ok = created > 0
+  if not self.menu_ok then
+    self.log("warn", "menu has no controls (tracking, HUD and the console report still work)")
+  end
+  return self.menu_ok
 end
 
 -- ---------------------------------------------------------------------------------------

@@ -204,6 +204,9 @@ function Inst.new(class, name)
     o.Health = 100; o.MaxHealth = 100
   elseif class == "IntValue" or class == "NumberValue" then
     o.Changed = Signal.new("Changed"); o.Value = 0
+  elseif class == "BindableEvent" then
+    o.Event = Signal.new("Event")
+    function o:Fire(...) self.Event:Fire(...) end
   end
   return o
 end
@@ -429,6 +432,7 @@ function M.new_juju(sim, game)
     strict(side == 1 or side == 2, "create_section side must be 1 or 2")
     strict(type(size) == "number" and size >= 0 and size <= 1, "create_section size 0-1")
     strict(type(offset) == "number" and offset >= 0 and offset <= 0.9, "create_section offset 0-0.9")
+    if J.section_returns_nil then return nil end             -- seen live outside a Juju addon context
     local section = { name = name }
     function section:create_element(info, elements)
       rec("create_element", info, elements); maybe_throw("create_element")
@@ -492,8 +496,10 @@ function M.new_juju(sim, game)
     rec("create_connection", signal, callback); maybe_throw("create_connection")
     strict(type(signal) == "table" and type(signal.Connect) == "function", "create_connection needs a signal")
     strict(type(callback) == "function", "create_connection callback must be function")
+    if J.cc_mode == "noop_nil" then return nil end          -- seen live outside a Juju addon context
     local conn = signal:Connect(callback)
     J.managed[#J.managed + 1] = conn
+    if J.cc_mode == "connect_nil" then return nil end        -- connects but returns nothing
     return conn
   end
 
@@ -654,7 +660,7 @@ function M.env(sim, game, J, extras)
       for i = 1, select("#", ...) do parts[i] = tostring((select(i, ...))) end
       out[#out + 1] = table.concat(parts, " ")
     end,
-    getgenv = function() return genv end, os_clock = sim.clock, shared = genv,
+    getgenv = function() return genv end, os_clock = sim.clock, shared = genv, Instance = M.Instance,
   }
   env.warn = env.print
   env.output = out

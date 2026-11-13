@@ -505,7 +505,7 @@ H.FLAG_PREFIX = "jhc_"
 function H.default_env()
   return {
     juju = juju, game = game, task = task, Drawing = Drawing,
-    Vector2 = Vector2, Color3 = Color3, print = print, warn = warn,
+    Vector2 = Vector2, Color3 = Color3, Instance = Instance, print = print, warn = warn,
     getgenv = getgenv, typeof = typeof, os_clock = os and os.clock or nil,
     shared = _G,
   }
@@ -561,12 +561,60 @@ function H.detect(env)
     return nil
   end
 
-  -- Managed connection: Juju's create_connection auto-disconnects on unload (documented).
+  -- Managed connection. juju.create_connection (documented: auto-disconnects on unload) is tried
+  -- first. LIVE FINDING: called from a script that is not loaded as a Juju addon it returned nil
+  -- and connected NOTHING. So a result that is not a real connection object is treated as "did not
+  -- connect" and the signal is connected directly; this addon's own unload hook disconnects it.
+  host.connect_fallbacks = 0
   function host.connect(signal, fn)
     if host.caps.create_connection then
-      return juju_t.create_connection(signal, fn)
+      local ok, conn = pcall(juju_t.create_connection, signal, fn)
+      if ok and conn ~= nil then
+        local okd, d = pcall(function() return conn.Disconnect end)
+        if okd and d ~= nil then return conn end
+      end
+      host.connect_fallbacks = host.connect_fallbacks + 1
     end
     return signal:Connect(fn)
+  end
+
+  -- One-time, asynchronous check of what juju.create_connection really does here, using a
+  -- throwaway BindableEvent. Result in host.connect_behaviour:
+  --   returns_connection   documented behaviour
+  --   noop_returns_nil     does nothing (seen when not loaded as a Juju addon): fallback is correct
+  --   connects_returns_nil connects but hands back nothing: the fallback may double-connect (warned)
+  --   errors               raised an error
+  function host.probe_connect(on_done)
+    local I = env.Instance
+    if not (host.caps.create_connection and type(I) == "table" and type(I.new) == "function"
+            and host.caps.task_wait) then
+      return
+    end
+    pcall(host.task.spawn, function()
+      local okb, be = pcall(I.new, "BindableEvent")
+      if not okb or be == nil then return end
+      local fired = 0
+      local ok, conn = pcall(juju_t.create_connection, be.Event, function() fired = fired + 1 end)
+      pcall(function() be:Fire() end)
+      host.task.wait(0.1)
+      local mode
+      if not ok then
+        mode = "errors"
+      elseif conn ~= nil and fired > 0 then
+        mode = "returns_connection"
+      elseif conn ~= nil then
+        mode = "returns_connection_but_silent"
+      elseif fired > 0 then
+        mode = "connects_returns_nil"
+        host.dup_risk = true
+      else
+        mode = "noop_returns_nil"
+      end
+      if conn ~= nil then pcall(function() conn:Disconnect() end) end
+      pcall(function() be:Destroy() end)
+      host.connect_behaviour = mode
+      if on_done then pcall(on_done, mode) end
+    end)
   end
 
   function host.ping()
@@ -2201,6 +2249,9 @@ function UI:report()
   end
   add("targets observed=%d  host_auto=%s  host_flag=%s", self.world and self.world:target_count() or 0,
     tostring(self.auto.ctx.host_auto), tostring(self.world and self.world.host_flag_name or "none"))
+  add("connections: create_connection behaviour=%s direct-connect fallbacks=%d%s",
+    tostring(self.host.connect_behaviour or "not probed yet"), self.host.connect_fallbacks or 0,
+    self.host.dup_risk and "  !! duplicate-listener risk" or "")
   add("-- capabilities --")
   for _, line in ipairs(self.host.caps_lines()) do R[#R + 1] = line end
   if #self.cfgobj.problems > 0 then
@@ -2260,6 +2311,10 @@ function UI:build_menu()
     if caps.set_tab_text then juju.set_tab_text("HitCheck") end
     local left = juju.create_section("Hit Checker", 1, 1, 0)
     local right = juju.create_section("Auto Mode", 2, 1, 0)
+    -- LIVE FINDING: outside a Juju addon context create_section returned nil. Fail ONCE, clearly.
+    if left == nil or right == nil then
+      error("juju.create_section returned nil (is this script loaded as a Juju addon?)", 0)
+    end
     local E = self.elements
 
     E.enabled = self:_add(left, { name = "Enabled", type = "toggle" }, function(v)
@@ -2331,8 +2386,15 @@ function UI:build_menu()
     self.log("error", "building menu failed: " .. tostring(err))
     return false
   end
-  self.menu_ok = true
-  return true
+  local created = 0
+  for _, el in pairs(self.elements) do
+    if el ~= nil then created = created + 1 end
+  end
+  self.menu_ok = created > 0
+  if not self.menu_ok then
+    self.log("warn", "menu has no controls (tracking, HUD and the console report still work)")
+  end
+  return self.menu_ok
 end
 
 -- ---------------------------------------------------------------------------------------
@@ -2587,6 +2649,17 @@ function M.start(user_cfg, env)
     -- 4. menu (non-fatal), world, sampler
     ui:build_menu()
     world:start()
+    host.probe_connect(function(mode)
+      if mode == "noop_returns_nil" then
+        log("warn", "juju.create_connection did nothing here (not loaded as a Juju addon?): using direct "
+          .. "connections; they are released by this addon's own unload hook")
+      elseif mode == "connects_returns_nil" then
+        log("warn", "juju.create_connection connects but returns no connection object: listeners may be "
+          .. "registered twice (host.dup_risk)")
+      elseif mode ~= "returns_connection" then
+        log("warn", "juju.create_connection behaves unexpectedly: " .. tostring(mode))
+      end
+    end)
     if cfg.enabled then
       diag:sample("init")
       world:start_sampler()

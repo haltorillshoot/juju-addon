@@ -13,7 +13,7 @@ H.FLAG_PREFIX = "jhc_"
 function H.default_env()
   return {
     juju = juju, game = game, task = task, Drawing = Drawing,
-    Vector2 = Vector2, Color3 = Color3, print = print, warn = warn,
+    Vector2 = Vector2, Color3 = Color3, Instance = Instance, print = print, warn = warn,
     getgenv = getgenv, typeof = typeof, os_clock = os and os.clock or nil,
     shared = _G,
   }
@@ -69,12 +69,60 @@ function H.detect(env)
     return nil
   end
 
-  -- Managed connection: Juju's create_connection auto-disconnects on unload (documented).
+  -- Managed connection. juju.create_connection (documented: auto-disconnects on unload) is tried
+  -- first. LIVE FINDING: called from a script that is not loaded as a Juju addon it returned nil
+  -- and connected NOTHING. So a result that is not a real connection object is treated as "did not
+  -- connect" and the signal is connected directly; this addon's own unload hook disconnects it.
+  host.connect_fallbacks = 0
   function host.connect(signal, fn)
     if host.caps.create_connection then
-      return juju_t.create_connection(signal, fn)
+      local ok, conn = pcall(juju_t.create_connection, signal, fn)
+      if ok and conn ~= nil then
+        local okd, d = pcall(function() return conn.Disconnect end)
+        if okd and d ~= nil then return conn end
+      end
+      host.connect_fallbacks = host.connect_fallbacks + 1
     end
     return signal:Connect(fn)
+  end
+
+  -- One-time, asynchronous check of what juju.create_connection really does here, using a
+  -- throwaway BindableEvent. Result in host.connect_behaviour:
+  --   returns_connection   documented behaviour
+  --   noop_returns_nil     does nothing (seen when not loaded as a Juju addon): fallback is correct
+  --   connects_returns_nil connects but hands back nothing: the fallback may double-connect (warned)
+  --   errors               raised an error
+  function host.probe_connect(on_done)
+    local I = env.Instance
+    if not (host.caps.create_connection and type(I) == "table" and type(I.new) == "function"
+            and host.caps.task_wait) then
+      return
+    end
+    pcall(host.task.spawn, function()
+      local okb, be = pcall(I.new, "BindableEvent")
+      if not okb or be == nil then return end
+      local fired = 0
+      local ok, conn = pcall(juju_t.create_connection, be.Event, function() fired = fired + 1 end)
+      pcall(function() be:Fire() end)
+      host.task.wait(0.1)
+      local mode
+      if not ok then
+        mode = "errors"
+      elseif conn ~= nil and fired > 0 then
+        mode = "returns_connection"
+      elseif conn ~= nil then
+        mode = "returns_connection_but_silent"
+      elseif fired > 0 then
+        mode = "connects_returns_nil"
+        host.dup_risk = true
+      else
+        mode = "noop_returns_nil"
+      end
+      if conn ~= nil then pcall(function() conn:Disconnect() end) end
+      pcall(function() be:Destroy() end)
+      host.connect_behaviour = mode
+      if on_done then pcall(on_done, mode) end
+    end)
   end
 
   function host.ping()
