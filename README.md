@@ -76,6 +76,9 @@ ignored with a message. Most useful: `scope`, `weapon_aliases` (the in-game tool
 
 ## Known limits (read these)
 
+* **Shot detection in practice.** Hood Customs guns do **not** fire `Tool.Activated` (melee does), so
+  gun shots are counted from Juju's `on_player_bullet_fired`, which a two-client test showed carries
+  only your own bullets; pellets within 50 ms count as one shot. The real tool name is `[DoubleBarrel]`.
 * **Hit detection in practice.** In the live session every confirmed hit came from Juju's
   `on_local_bullet_confirmed` signal and none from `Humanoid.HealthChanged`, so on this game the native
   signal is what makes detection work; the health-based path is a fallback for builds without it. The

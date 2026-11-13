@@ -17,10 +17,10 @@ annotations, `goto`), but Luau parsing/semantics are unverified.
 
 | Configuration | Result |
 |---|---|
-| `src/` on LuaJIT 2.1.1724 | 280 / 280 |
-| `src/` on LuaJIT 2.1.0-beta3 | 280 / 280 |
-| `dist/jhc_hood_customs.lua` (shipped single file) on LuaJIT 2.1.1724 | 280 / 280 |
-| `dist/jhc_hood_customs.lua` on LuaJIT 2.1.0-beta3 | 280 / 280 |
+| `src/` on LuaJIT 2.1.1724 | 294 / 294 |
+| `src/` on LuaJIT 2.1.0-beta3 | 294 / 294 |
+| `dist/jhc_hood_customs.lua` (shipped single file) on LuaJIT 2.1.1724 | 294 / 294 |
+| `dist/jhc_hood_customs.lua` on LuaJIT 2.1.0-beta3 | 294 / 294 |
 | Mutation check (`tools/mutation_check.py`): deliberate breakages detected | 71 / 71 |
 
 ```
@@ -37,6 +37,7 @@ annotations, `goto`), but Luau parsing/semantics are unverified.
                                                  20 Live findings                   8
                                                  21 Juju native confirmation       11
                                                  22 Window follows confirmed lat.   8
+                                                 23 Gun shots via bullet signal    14
 ```
 
 Suites 01-16 map one-to-one onto the 16 test areas requested. 17 is the latency study, 18 holds one

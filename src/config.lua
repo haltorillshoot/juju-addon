@@ -25,6 +25,11 @@ C.defaults = {
   -- Juju's own confirmation that a LOCAL bullet hit someone. When present it is used as the strongest
   -- hit evidence (it removes the "somebody else's damage" ambiguity).
   use_juju_signals = true,
+  -- LIVE FINDING: guns in Hood Customs do NOT fire Tool.Activated (melee does). Juju's
+  -- on_player_bullet_fired does fire, once per bullet/pellet, and a two-client test showed each
+  -- client only receives its OWN bullets. It is therefore used as the shot-attempt source for guns.
+  use_bullet_signal = true,
+  pellet_gap = 0.05,         -- bullets this close together (s) are one trigger pull
   confirm_match = 0.5,       -- a Juju confirmation corroborates a health-inferred hit up to this long after it (s)
 
   -- which players' damage can confirm a hit: "auto" (ragebot target if set, else all),
@@ -83,6 +88,7 @@ local SCHEMA = {
   tab_summary = { "boolean" }, auto_mode = { "boolean" },
   follow_host_auto = { "boolean" }, host_auto_flag = { "string" },
   use_juju_signals = { "boolean" }, confirm_match = { "number", 0.05, 2 },
+  use_bullet_signal = { "boolean" }, pellet_gap = { "number", 0, 0.3 },
   scope = { "enum", { "auto", "target", "all" } },
   causal_check = { "boolean" }, causal_ratio = { "number", 0, 1 },
   burst_gap = { "number", 0, 0.1 }, dedupe_eps = { "number", 0, 0.1 },

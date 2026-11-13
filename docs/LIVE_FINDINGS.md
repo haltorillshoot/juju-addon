@@ -82,6 +82,27 @@ Two things stand out:
 Unloading was also verified live: 9 HUD objects removed, registry entry cleared, `jhc_loaded` set back
 to `false`, and reloading the bundle shut the previous instance down first.
 
+## 4c. Third run - guns do not fire Tool.Activated
+
+With a gun equipped the addon recorded **0 shot attempts while Juju confirmed 9 hits**
+(`unmatched=9`: it refused to invent shots). Probing showed why:
+
+* `Tool.Activated` fires for **melee** (the knife run counted 107 attempts) but **not for guns**.
+* `on_local_bullet_fired` never fires in this build (0 events while bullets were clearly being fired).
+* `on_player_bullet_fired` fires **once per bullet/pellet**, payload
+  `(Part BULLET_RAYS, Beam GunBeam, CFrame, boolean)`.
+
+Is that signal global or local? Listening on **both clients at once for the same 25 s** gave
+`dECqyVEu: 20` and `TvjsKLvR: 40`. A server-wide signal would give both clients the same count, so
+**each client receives only its own bullets**. It is therefore used as the shot-attempt source for
+guns, with pellets inside `pellet_gap` (50 ms, measured from the start of the pull) counted as one
+shot. `use_bullet_signal = false` disables it.
+
+The weapon is a normal Tool on the character after all: `Tool:[DoubleBarrel]` (the earlier
+"no tool equipped" was a respawn moment). Backpack seen: `[Revolver]`, `[TacticalShotgun]`,
+`[Knife]`, `[Pizza]`, `[Burger]`, `[Taco]`, `[Chicken]`, `[Tip Jar]`. The real Double Barrel name
+`[DoubleBarrel]` matches the shipped alias `doublebarrel`.
+
 ## 5. Still unverified
 
 * Semantics of `on_local_bullet_fired` (never fired), whether `on_player_bullet_fired` includes your own

@@ -149,6 +149,9 @@ function UI:report()
   end
   add("targets observed=%d  host_auto=%s  host_flag=%s", self.world and self.world:target_count() or 0,
     tostring(self.auto.ctx.host_auto), tostring(self.world and self.world.host_flag_name or "none"))
+  add("juju bullet signal (on_player_bullet_fired, shot source for guns): %s  bullets=%d",
+    (self.world and self.world.bullet_hooked) and "hooked" or "not available/disabled",
+    self.world and self.world.counts.bullets_seen or 0)
   add("juju native hit signal (on_local_bullet_confirmed): %s  confirms=%d corroborated=%d pellets=%d unmatched=%d",
     (self.world and self.world.juju_confirm_hooked) and "hooked" or "not available/disabled", c.juju_confirms,
     c.corroborated, c.confirm_pellets, c.confirm_unmatched)

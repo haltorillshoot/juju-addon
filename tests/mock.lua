@@ -400,7 +400,8 @@ function M.new_juju(sim, game)
     client_pos = M.Vector3(0, 0, 0), violations = {}, strict_errors = {}, throw = {} }
   J.signals = { on_ragebot_target_changed = Signal.new("a"), on_legitbot_target_changed = Signal.new("b"),
     on_target_changed = Signal.new("c"), on_player_status_changed = Signal.new("d"),
-    on_local_bullet_confirmed = Signal.new("e") }     -- undocumented, seen live
+    on_local_bullet_confirmed = Signal.new("e"),      -- undocumented, seen live
+    on_player_bullet_fired = Signal.new("f") }        -- undocumented; local client's own bullets
   local api = {}
   J.api = api
 

@@ -267,6 +267,11 @@ C.defaults = {
   -- Juju's own confirmation that a LOCAL bullet hit someone. When present it is used as the strongest
   -- hit evidence (it removes the "somebody else's damage" ambiguity).
   use_juju_signals = true,
+  -- LIVE FINDING: guns in Hood Customs do NOT fire Tool.Activated (melee does). Juju's
+  -- on_player_bullet_fired does fire, once per bullet/pellet, and a two-client test showed each
+  -- client only receives its OWN bullets. It is therefore used as the shot-attempt source for guns.
+  use_bullet_signal = true,
+  pellet_gap = 0.05,         -- bullets this close together (s) are one trigger pull
   confirm_match = 0.5,       -- a Juju confirmation corroborates a health-inferred hit up to this long after it (s)
 
   -- which players' damage can confirm a hit: "auto" (ragebot target if set, else all),
@@ -325,6 +330,7 @@ local SCHEMA = {
   tab_summary = { "boolean" }, auto_mode = { "boolean" },
   follow_host_auto = { "boolean" }, host_auto_flag = { "string" },
   use_juju_signals = { "boolean" }, confirm_match = { "number", 0.05, 2 },
+  use_bullet_signal = { "boolean" }, pellet_gap = { "number", 0, 0.3 },
   scope = { "enum", { "auto", "target", "all" } },
   causal_check = { "boolean" }, causal_ratio = { "number", 0, 1 },
   burst_gap = { "number", 0, 0.1 }, dedupe_eps = { "number", 0, 0.1 },
@@ -1175,7 +1181,7 @@ function E:register_shot(info)
     weapon = weapon, mode = mode, cand = cand, ncand = n, nlive = n,
     ping = info.ping_ms, gap = info.gap, ammo_tracked = info.ammo_tracked and true or false,
     state = "pending", b = blist, overlap = false, overlap_hit = false,
-    damage_total = 0, damage_events = 0,
+    damage_total = 0, damage_events = 0, source = info.source or "activated", pellets = info.pellets or 0,
   }
 
   -- Ammo decrement that arrived a hair before the activation (handler order inside one frame).
@@ -1211,8 +1217,9 @@ function E:register_shot(info)
     return shot
   end
 
-  self:_event(t, "shot", string.format("#%d %s mode=%s cand=%d window=%.0fms ping=%s",
-    shot.id, weapon.key, mode, n, window * 1000, shot.ping and string.format("%.0f", shot.ping) or "n/a"))
+  self:_event(t, "shot", string.format("#%d %s via=%s mode=%s cand=%d window=%.0fms ping=%s",
+    shot.id, weapon.key, shot.source, mode, n, window * 1000,
+    shot.ping and string.format("%.0f", shot.ping) or "n/a"))
   self.on_change()
   return shot
 end
@@ -1540,6 +1547,21 @@ end
 -- ---------------------------------------------------------------------------------------
 -- Fire evidence (optional ammo source)
 -- ---------------------------------------------------------------------------------------
+-- Another bullet of a shot already registered (shotgun pellet). Returns true if it was absorbed.
+function E:add_pellet(t, weapon_key)
+  local last = self.last_attempt[weapon_key]
+  if last == nil or (t - last) > self.cfg.pellet_gap then return false end
+  for i = #self.pending, 1, -1 do
+    local s = self.pending[i]
+    if s.weapon.key == weapon_key and s.t == last then
+      s.pellets = s.pellets + 1
+      return true
+    end
+  end
+  -- the shot already resolved (a fast hit): still its pellet, do not open a new shot
+  return true
+end
+
 -- info: { t?, weapon_key }
 function E:register_fire(info)
   if self.dead then return "dead" end
@@ -1803,7 +1825,7 @@ function W.new(ctx)
   self.sampler_gen = 0
   self.sampler_on = false
   self.started = false
-  self.counts = { shots_seen = 0, shot_errors = 0 }
+  self.counts = { shots_seen = 0, shot_errors = 0, bullets_seen = 0 }
   return self
 end
 
@@ -1838,11 +1860,34 @@ function W:_hook_juju_signals()
   self.juju_confirm_hooked = false
   if not self.cfg.use_juju_signals then return end
   local sig = self.host.juju_signal("on_local_bullet_confirmed")
+  if sig ~= nil then
+    local ok = self.bag:set("juju:confirmed", sig, function(player, part, dmg)
+      self:_on_juju_confirmed(player, part, dmg)
+    end)
+    self.juju_confirm_hooked = ok ~= nil
+  end
+  self:_hook_bullet_signal()
+end
+
+-- Shot attempts for guns. Hood Customs guns do not fire Tool.Activated; this signal does, once per
+-- bullet, and each client only receives its own bullets (verified with two clients).
+function W:_hook_bullet_signal()
+  self.bullet_hooked = false
+  if not self.cfg.use_bullet_signal then return end
+  local sig = self.host.juju_signal("on_player_bullet_fired")
   if sig == nil then return end
-  local ok = self.bag:set("juju:confirmed", sig, function(player, part, dmg)
-    self:_on_juju_confirmed(player, part, dmg)
-  end)
-  self.juju_confirm_hooked = ok ~= nil
+  local ok = self.bag:set("juju:fired", sig, function() self:_on_bullet_fired() end)
+  self.bullet_hooked = ok ~= nil
+end
+
+function W:_on_bullet_fired()
+  if not self.cfg.enabled then return end
+  local cur = self.current
+  if cur == nil then return end                      -- weapon unknown: do not invent a shot
+  local t = self.host.clock()
+  self.counts.bullets_seen = self.counts.bullets_seen + 1
+  if self.engine:add_pellet(t, cur.weapon.key) then return end   -- same trigger pull
+  self:_begin_shot(t, cur, "bullet")
 end
 
 function W:_on_juju_confirmed(player, part, dmg)
@@ -2118,12 +2163,17 @@ function W:_on_activated(tool)
       self.auto:update({ weapon_is_dbs = w.is_dbs })
     end
   end
+  self:_begin_shot(t, cur, "activated")
+end
+
+function W:_begin_shot(t, cur, source)
   local ping = self.diag:sample("shot", false)
   local gap = self.diag:sample_gap()
   local cand, n = self:_candidates()
   self.engine:register_shot({
     t = t, weapon = cur.weapon, mode = self.auto:mode_tag(), candidates = cand, ncand = n,
     ping_ms = ping, gap = gap, ammo_tracked = (cur.ammo_kind ~= nil and cur.ammo_validated == true),
+    source = source, pellets = (source == "bullet") and 1 or 0,
   })
   self.dirty()
 end
@@ -2400,6 +2450,9 @@ function UI:report()
   end
   add("targets observed=%d  host_auto=%s  host_flag=%s", self.world and self.world:target_count() or 0,
     tostring(self.auto.ctx.host_auto), tostring(self.world and self.world.host_flag_name or "none"))
+  add("juju bullet signal (on_player_bullet_fired, shot source for guns): %s  bullets=%d",
+    (self.world and self.world.bullet_hooked) and "hooked" or "not available/disabled",
+    self.world and self.world.counts.bullets_seen or 0)
   add("juju native hit signal (on_local_bullet_confirmed): %s  confirms=%d corroborated=%d pellets=%d unmatched=%d",
     (self.world and self.world.juju_confirm_hooked) and "hooked" or "not available/disabled", c.juju_confirms,
     c.corroborated, c.confirm_pellets, c.confirm_unmatched)

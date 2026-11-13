@@ -39,7 +39,7 @@ function W.new(ctx)
   self.sampler_gen = 0
   self.sampler_on = false
   self.started = false
-  self.counts = { shots_seen = 0, shot_errors = 0 }
+  self.counts = { shots_seen = 0, shot_errors = 0, bullets_seen = 0 }
   return self
 end
 
@@ -74,11 +74,34 @@ function W:_hook_juju_signals()
   self.juju_confirm_hooked = false
   if not self.cfg.use_juju_signals then return end
   local sig = self.host.juju_signal("on_local_bullet_confirmed")
+  if sig ~= nil then
+    local ok = self.bag:set("juju:confirmed", sig, function(player, part, dmg)
+      self:_on_juju_confirmed(player, part, dmg)
+    end)
+    self.juju_confirm_hooked = ok ~= nil
+  end
+  self:_hook_bullet_signal()
+end
+
+-- Shot attempts for guns. Hood Customs guns do not fire Tool.Activated; this signal does, once per
+-- bullet, and each client only receives its own bullets (verified with two clients).
+function W:_hook_bullet_signal()
+  self.bullet_hooked = false
+  if not self.cfg.use_bullet_signal then return end
+  local sig = self.host.juju_signal("on_player_bullet_fired")
   if sig == nil then return end
-  local ok = self.bag:set("juju:confirmed", sig, function(player, part, dmg)
-    self:_on_juju_confirmed(player, part, dmg)
-  end)
-  self.juju_confirm_hooked = ok ~= nil
+  local ok = self.bag:set("juju:fired", sig, function() self:_on_bullet_fired() end)
+  self.bullet_hooked = ok ~= nil
+end
+
+function W:_on_bullet_fired()
+  if not self.cfg.enabled then return end
+  local cur = self.current
+  if cur == nil then return end                      -- weapon unknown: do not invent a shot
+  local t = self.host.clock()
+  self.counts.bullets_seen = self.counts.bullets_seen + 1
+  if self.engine:add_pellet(t, cur.weapon.key) then return end   -- same trigger pull
+  self:_begin_shot(t, cur, "bullet")
 end
 
 function W:_on_juju_confirmed(player, part, dmg)
@@ -354,12 +377,17 @@ function W:_on_activated(tool)
       self.auto:update({ weapon_is_dbs = w.is_dbs })
     end
   end
+  self:_begin_shot(t, cur, "activated")
+end
+
+function W:_begin_shot(t, cur, source)
   local ping = self.diag:sample("shot", false)
   local gap = self.diag:sample_gap()
   local cand, n = self:_candidates()
   self.engine:register_shot({
     t = t, weapon = cur.weapon, mode = self.auto:mode_tag(), candidates = cand, ncand = n,
     ping_ms = ping, gap = gap, ammo_tracked = (cur.ammo_kind ~= nil and cur.ammo_validated == true),
+    source = source, pellets = (source == "bullet") and 1 or 0,
   })
   self.dirty()
 end

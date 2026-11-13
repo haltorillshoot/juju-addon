@@ -153,7 +153,7 @@ function E:register_shot(info)
     weapon = weapon, mode = mode, cand = cand, ncand = n, nlive = n,
     ping = info.ping_ms, gap = info.gap, ammo_tracked = info.ammo_tracked and true or false,
     state = "pending", b = blist, overlap = false, overlap_hit = false,
-    damage_total = 0, damage_events = 0,
+    damage_total = 0, damage_events = 0, source = info.source or "activated", pellets = info.pellets or 0,
   }
 
   -- Ammo decrement that arrived a hair before the activation (handler order inside one frame).
@@ -189,8 +189,9 @@ function E:register_shot(info)
     return shot
   end
 
-  self:_event(t, "shot", string.format("#%d %s mode=%s cand=%d window=%.0fms ping=%s",
-    shot.id, weapon.key, mode, n, window * 1000, shot.ping and string.format("%.0f", shot.ping) or "n/a"))
+  self:_event(t, "shot", string.format("#%d %s via=%s mode=%s cand=%d window=%.0fms ping=%s",
+    shot.id, weapon.key, shot.source, mode, n, window * 1000,
+    shot.ping and string.format("%.0f", shot.ping) or "n/a"))
   self.on_change()
   return shot
 end
@@ -518,6 +519,21 @@ end
 -- ---------------------------------------------------------------------------------------
 -- Fire evidence (optional ammo source)
 -- ---------------------------------------------------------------------------------------
+-- Another bullet of a shot already registered (shotgun pellet). Returns true if it was absorbed.
+function E:add_pellet(t, weapon_key)
+  local last = self.last_attempt[weapon_key]
+  if last == nil or (t - last) > self.cfg.pellet_gap then return false end
+  for i = #self.pending, 1, -1 do
+    local s = self.pending[i]
+    if s.weapon.key == weapon_key and s.t == last then
+      s.pellets = s.pellets + 1
+      return true
+    end
+  end
+  -- the shot already resolved (a fast hit): still its pellet, do not open a new shot
+  return true
+end
+
 -- info: { t?, weapon_key }
 function E:register_fire(info)
   if self.dead then return "dead" end
